@@ -285,6 +285,7 @@ func convertPath(p *sdpb.Path, dst addr.IA) (path.Path, error) {
 		Dst: dst,
 		DataplanePath: path.SCION{
 			Raw: p.Raw,
+			MTU: uint16(p.Mtu),
 		},
 		NextHop: underlayA,
 		Meta: snet.PathMetadata{
