@@ -30,6 +30,9 @@ type OneHop struct {
 	Info      path.InfoField
 	FirstHop  path.HopField
 	SecondHop path.HopField
+
+	// MTU is the maximum transmission unit for the path, in bytes.
+	MTU uint16
 }
 
 func (p OneHop) SetPath(s *slayers.SCION) error {
@@ -42,11 +45,20 @@ func (p OneHop) SetPath(s *slayers.SCION) error {
 	return nil
 }
 
+func (p OneHop) GetMTU() uint16 {
+	return p.MTU
+}
+
+func (p OneHop) GetLength() int {
+	return onehop.PathLen
+}
+
 // NewOneHop creates a onehop path that has the first hopfield initialized.
 func NewOneHop(
 	egress uint16,
 	timestamp time.Time,
 	expiration uint8,
+	mtu uint16,
 	mac hash.Hash,
 ) (OneHop, error) {
 
@@ -64,6 +76,7 @@ func NewOneHop(
 			ConsEgress: egress,
 			ExpTime:    expiration,
 		},
+		MTU: mtu,
 	}
 	ohp.FirstHop.Mac = path.MAC(mac, ohp.Info, ohp.FirstHop, nil)
 	return ohp, nil

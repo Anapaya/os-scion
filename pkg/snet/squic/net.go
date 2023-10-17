@@ -21,13 +21,16 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net"
+	"os"
 	"sync"
 	"time"
 
-	"github.com/quic-go/quic-go"
+	quic "github.com/quic-go/quic-go"
 
+	"github.com/scionproto/scion/pkg/addr"
 	"github.com/scionproto/scion/pkg/log"
 	"github.com/scionproto/scion/pkg/private/serrors"
+	"github.com/scionproto/scion/pkg/slayers"
 	"github.com/scionproto/scion/pkg/snet"
 )
 
@@ -41,6 +44,11 @@ const (
 	AcceptStreamError
 
 	errNoError quic.ApplicationErrorCode = 0x100
+)
+
+const (
+	Version1                 quic.Version = 0x1
+	VersionSCIONExperimental quic.Version = 0x5c10000f
 )
 
 // streamAcceptTimeout is the default timeout for accepting connections.
@@ -392,11 +400,37 @@ func (d ConnDialer) Dial(ctx context.Context, dst net.Addr) (net.Conn, error) {
 		// Clone TLS config to avoid data races.
 		tlsConfig := d.TLSConfig.Clone()
 		tlsConfig.ServerName = serverName
+
 		// Clone QUIC config to avoid data races, if it exists.
 		var quicConfig *quic.Config
-		if d.QUICConfig != nil {
-			quicConfig = d.QUICConfig.Clone()
-		}
+		quicConfig = func() *quic.Config {
+			// If a QUIC config is configured with specific QUIC versions,
+			// use them instead of version discovery.
+			if d.QUICConfig != nil && len(d.QUICConfig.Versions) != 0 {
+				return d.QUICConfig.Clone()
+			}
+
+			// If the SCION version is not selected, use the default values.
+			if useScionVersion := d.selectVersions(d.Transport.Conn.LocalAddr(), dst); !useScionVersion {
+				if d.QUICConfig != nil {
+					// Clone QUIC config to avoid data races, if it exists.
+					return d.QUICConfig.Clone()
+				}
+				return nil
+			}
+
+			// If a QUIC configuration is provided, override the versions.
+			if d.QUICConfig != nil {
+				// Clone QUIC config to avoid data races, if it exists.
+				cfg := d.QUICConfig.Clone()
+				cfg.Versions = []quic.Version{VersionSCIONExperimental}
+				return cfg
+			}
+
+			return &quic.Config{
+				Versions: []quic.Version{VersionSCIONExperimental},
+			}
+		}()
 
 		var err error
 		session, err = d.Transport.Dial(ctx, dst, tlsConfig, quicConfig)
@@ -427,7 +461,66 @@ func (d ConnDialer) Dial(ctx context.Context, dst net.Addr) (net.Conn, error) {
 		stream:  stream,
 		session: session,
 	}, nil
+}
 
+// selectVersions selects the QUIC version based on path MTU. If the path MTU is
+// not large enough to fit the 1200 payload of the initial QUIC packet, we use
+// the experimental SCION version (indicated by returning true)
+func (d ConnDialer) selectVersions(local, remote net.Addr) bool {
+	if _, disabled := os.LookupEnv("SCION_EXPERIMENTAL_DISABLE_QUIC_SCION"); disabled {
+		return false
+	}
+
+	var (
+		path        snet.DataplanePath
+		pathBytes   int
+		mtu         int
+		localBytes  = net.IPv6len // conservative max value
+		remoteBytes = 4           // IPv4 or SVC
+	)
+
+	// Extract path and remote address size.
+	switch a := remote.(type) {
+	case *snet.UDPAddr:
+		path = a.Path
+		if a.Host.IP.To4() == nil {
+			remoteBytes = net.IPv6len
+		}
+	case *snet.SVCAddr:
+		path = a.Path
+	default:
+		return false
+	}
+
+	// Extract local address size.
+	switch a := local.(type) {
+	case *snet.UDPAddr:
+		if a.Host.IP.To4() != nil {
+			localBytes = net.IPv4len
+		}
+	}
+
+	// Extract MTU and path size.
+	pi, ok := path.(interface {
+		GetMTU() uint16
+		GetLength() int
+	})
+	if !ok {
+		return false
+	}
+	mtu = int(pi.GetMTU())
+	pathBytes = pi.GetLength()
+	// If the MTU is not set, we default to the native quic version.
+	if mtu == 0 {
+		return false
+	}
+
+	addrLen := addr.IABytes*2 + remoteBytes + localBytes
+	sdu := mtu - slayers.CmnHdrLen - addrLen - pathBytes - slayers.UDPHdrLen
+	if sdu >= 1200 {
+		return false
+	}
+	return true
 }
 
 // computeServerName returns a parseable version of the SCION address for use
