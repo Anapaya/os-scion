@@ -442,7 +442,10 @@ func (solution *pathSolution) Path(hashState hashState) Path {
 	staticInfo := collectMetadata(interfaces, asEntries)
 
 	path := Path{
-		SCIONPath: segments.ScionPath(),
+		SCIONPath: snetpath.SCION{
+			Raw: segments.ScionPath(),
+			MTU: mtu,
+		},
 		Metadata: snet.PathMetadata{
 			Interfaces:           interfaces,
 			MTU:                  mtu,
@@ -626,7 +629,7 @@ func (s segmentList) ComputeExpTime() time.Time {
 	return minTimestamp
 }
 
-func (s segmentList) ScionPath() snetpath.SCION {
+func (s segmentList) ScionPath() []byte {
 	var meta scion.MetaHdr
 	var infos []path.InfoField
 	var hops []path.HopField
@@ -649,5 +652,5 @@ func (s segmentList) ScionPath() snetpath.SCION {
 	if err := sp.SerializeTo(raw); err != nil {
 		panic(err)
 	}
-	return snetpath.SCION{Raw: raw}
+	return raw
 }

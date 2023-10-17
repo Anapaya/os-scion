@@ -118,6 +118,13 @@ func (r *Resolver) LookupSVC(ctx context.Context, p snet.Path, svc addr.SVC) (*R
 		ext.Error.Set(span, true)
 		return nil, err
 	}
+
+	if mtuer, ok := p.Dataplane().(snet.MTUer); ok {
+		if raw, ok := reply.ReturnPath.Dataplane().(snet.RawReplyPath); ok {
+			raw.MTU = mtuer.GetMTU()
+			reply.ReturnPath.(*path).dataplane = raw
+		}
+	}
 	return reply, nil
 }
 
