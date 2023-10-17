@@ -88,6 +88,57 @@ func TestTestCounterWith(t *testing.T) {
 	})
 }
 
+func TestTestCounterReset(t *testing.T) {
+	t.Run("reset without children resets only value", func(t *testing.T) {
+		c := metrics.NewTestCounter()
+
+		c.Add(2)
+		assert.Equal(t, float64(2), metrics.CounterValue(c))
+
+		c.Reset()
+		assert.Equal(t, float64(0), metrics.CounterValue(c))
+	})
+
+	t.Run("reset with children deletes all children", func(t *testing.T) {
+		c := metrics.NewTestCounter()
+
+		child1 := c.With("x", "1")
+		child1.Add(2)
+		assert.Equal(t, float64(2), metrics.CounterValue(child1))
+
+		child2 := c.With("x", "2")
+		child2.Add(3)
+		assert.Equal(t, float64(3), metrics.CounterValue(child2))
+
+		c.Reset()
+		assert.Equal(t, float64(0), metrics.CounterValue(c.With("x", "1")))
+		assert.Equal(t, float64(0), metrics.CounterValue(c.With("x", "2")))
+		assert.Equal(t, float64(0), metrics.CounterValue(c))
+	})
+
+	t.Run("reset with intermediate node", func(t *testing.T) {
+		c := metrics.NewTestCounter()
+
+		intermediate := c.With("x", "1")
+		intermediate.Add(1)
+		child1 := intermediate.With("y", "1")
+		child1.Add(2)
+		child2 := intermediate.With("y", "2")
+		child2.Add(3)
+		assert.Equal(t, float64(2), metrics.CounterValue(c.With("x", "1", "y", "1")))
+		assert.Equal(t, float64(3), metrics.CounterValue(c.With("x", "1", "y", "2")))
+
+		intermediate.Reset()
+		assert.Equal(t, float64(2), metrics.CounterValue(c.With("x", "1", "y", "1")))
+		assert.Equal(t, float64(3), metrics.CounterValue(c.With("x", "1", "y", "2")))
+		assert.Equal(t, float64(0), metrics.CounterValue(c.With("x", "1")))
+
+		c.Reset()
+		assert.Equal(t, float64(0), metrics.CounterValue(c.With("x", "1", "y", "1")))
+		assert.Equal(t, float64(0), metrics.CounterValue(c.With("x", "1", "y", "2")))
+	})
+}
+
 func ExampleTestCounter_simple() {
 	// This example shows how to write a simple test using a TestCounter.
 	type Server struct {
@@ -217,6 +268,57 @@ func TestTestGaugeWith(t *testing.T) {
 
 		assert.Equal(t, float64(3), metrics.GaugeValue(a))
 		assert.Equal(t, float64(3), metrics.GaugeValue(b))
+	})
+}
+
+func TestTestGaugeReset(t *testing.T) {
+	t.Run("reset without children resets only value", func(t *testing.T) {
+		c := metrics.NewTestGauge()
+
+		c.Add(2)
+		assert.Equal(t, float64(2), metrics.GaugeValue(c))
+
+		c.Reset()
+		assert.Equal(t, float64(0), metrics.GaugeValue(c))
+	})
+
+	t.Run("reset with children deletes all children", func(t *testing.T) {
+		c := metrics.NewTestGauge()
+
+		child1 := c.With("x", "1")
+		child1.Add(2)
+		assert.Equal(t, float64(2), metrics.GaugeValue(child1))
+
+		child2 := c.With("x", "2")
+		child2.Add(3)
+		assert.Equal(t, float64(3), metrics.GaugeValue(child2))
+
+		c.Reset()
+		assert.Equal(t, float64(0), metrics.GaugeValue(c.With("x", "1")))
+		assert.Equal(t, float64(0), metrics.GaugeValue(c.With("x", "2")))
+		assert.Equal(t, float64(0), metrics.GaugeValue(c))
+	})
+
+	t.Run("reset with intermediate node", func(t *testing.T) {
+		c := metrics.NewTestGauge()
+
+		intermediate := c.With("x", "1")
+		intermediate.Add(1)
+		child1 := intermediate.With("y", "1")
+		child1.Add(2)
+		child2 := intermediate.With("y", "2")
+		child2.Add(3)
+		assert.Equal(t, float64(2), metrics.GaugeValue(c.With("x", "1", "y", "1")))
+		assert.Equal(t, float64(3), metrics.GaugeValue(c.With("x", "1", "y", "2")))
+
+		intermediate.Reset()
+		assert.Equal(t, float64(2), metrics.GaugeValue(c.With("x", "1", "y", "1")))
+		assert.Equal(t, float64(3), metrics.GaugeValue(c.With("x", "1", "y", "2")))
+		assert.Equal(t, float64(0), metrics.GaugeValue(c.With("x", "1")))
+
+		c.Reset()
+		assert.Equal(t, float64(0), metrics.GaugeValue(c.With("x", "1", "y", "1")))
+		assert.Equal(t, float64(0), metrics.GaugeValue(c.With("x", "1", "y", "2")))
 	})
 }
 

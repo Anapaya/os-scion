@@ -46,6 +46,18 @@ func (mr *MockCounterMockRecorder) Add(arg0 interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockCounter)(nil).Add), arg0)
 }
 
+// Reset mocks base method.
+func (m *MockCounter) Reset() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Reset")
+}
+
+// Reset indicates an expected call of Reset.
+func (mr *MockCounterMockRecorder) Reset() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reset", reflect.TypeOf((*MockCounter)(nil).Reset))
+}
+
 // With mocks base method.
 func (m *MockCounter) With(arg0 ...string) metrics.Counter {
 	m.ctrl.T.Helper()

@@ -120,6 +120,11 @@ func (g *gauge) Add(delta float64) {
 	g.gv.With(makeLabels(g.lvs...)).Add(delta)
 }
 
+// Reset deletes all metrics in this vector.
+func (g *gauge) Reset() {
+	g.gv.Reset()
+}
+
 // newGauge wraps the GaugeVec and returns a usable Gauge object.
 func newGauge(gv *prometheus.GaugeVec) *gauge {
 	return &gauge{
@@ -161,6 +166,11 @@ func (c *counter) Add(delta float64) {
 	c.cv.With(makeLabels(c.lvs...)).Add(delta)
 }
 
+// Reset deletes all metrics in this vector.
+func (c *counter) Reset() {
+	c.cv.Reset()
+}
+
 // histogram implements Histogram via a Prometheus HistogramVec. The difference
 // between a Histogram and a Summary is that Histograms require predefined
 // quantile buckets, and can be statistically aggregated.
@@ -195,6 +205,11 @@ func (h *histogram) With(labelValues ...string) Histogram {
 // Observe implements Histogram.
 func (h *histogram) Observe(value float64) {
 	h.hv.With(makeLabels(h.lvs...)).Observe(value)
+}
+
+// Reset deletes all metrics in this vector.
+func (h *histogram) Reset() {
+	h.hv.Reset()
 }
 
 func makeLabels(labelValues ...string) prometheus.Labels {

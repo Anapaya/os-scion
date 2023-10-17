@@ -98,6 +98,16 @@ func (b *node) findCounter(labelsMap map[string]string) *node {
 	return b.root.children[canonicalLabels]
 }
 
+func (b *node) reset() {
+	b.mtx.Lock()
+	defer b.mtx.Unlock()
+
+	for k := range b.children {
+		delete(b.children, k)
+	}
+	b.v = 0
+}
+
 func (b *node) add(delta float64, canBeNegative bool) {
 	b.mtx.Lock()
 	defer b.mtx.Unlock()
@@ -170,6 +180,11 @@ func (c *TestCounter) With(labels ...string) Counter {
 	}
 }
 
+// Reset deletes all metrics in this counter.
+func (c *TestCounter) Reset() {
+	c.reset()
+}
+
 // CounterValue extracts the value out of a TestCounter. If the argument is not a *TestCounter,
 // CounterValue will panic.
 func CounterValue(c Counter) float64 {
@@ -208,6 +223,11 @@ func (g *TestGauge) With(labels ...string) Gauge {
 	return &TestGauge{
 		node: g.with(labels...),
 	}
+}
+
+// Reset deletes all metrics in this gauge.
+func (g *TestGauge) Reset() {
+	g.reset()
 }
 
 // GaugeValue extracts the value out of a TestGauge. If the argument is not a *TestGauge,
