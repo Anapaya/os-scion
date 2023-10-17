@@ -23,6 +23,11 @@ import (
 	"github.com/scionproto/scion/pkg/private/serrors"
 )
 
+const (
+	// UDPHdrLen is the length of the UDP header.
+	UDPHdrLen = 8
+)
+
 // UDP is the SCION/UDP header.
 // Note; this _could_ mostly reuse gopacket/layers.UDP and only customize
 // checksum calculation, but as this pulls in every layer available in

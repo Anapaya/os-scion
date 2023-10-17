@@ -52,9 +52,15 @@ func (DefaultReplyPather) ReplyPath(rpath RawPath) (DataplanePath, error) {
 // slayer path.
 type RawReplyPath struct {
 	Path path.Path
+	// MTU is the maximum transmission unit for the path, in bytes.
+	MTU uint16
 }
 
 func (p RawReplyPath) SetPath(s *slayers.SCION) error {
 	s.Path, s.PathType = p.Path, p.Path.Type()
 	return nil
+}
+
+func (p RawReplyPath) GetMTU() uint16 {
+	return p.MTU
 }

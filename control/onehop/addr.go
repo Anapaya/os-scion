@@ -38,6 +38,8 @@ type Addr struct {
 	SVC addr.SVC
 	// NextHop is the router that owns the egress interface.
 	NextHop *net.UDPAddr
+	// MTU is the maximum transmission unit for the path, in bytes.
+	MTU uint16
 }
 
 func (a Addr) Network() string {
@@ -66,7 +68,7 @@ func (r *AddressRewriter) RedirectToQUIC(
 	if !ok {
 		return r.Rewriter.RedirectToQUIC(ctx, address)
 	}
-	path, err := r.getPath(a.Egress)
+	path, err := r.getPath(a.Egress, a.MTU)
 	if err != nil {
 		return nil, false, err
 	}
@@ -79,9 +81,9 @@ func (r *AddressRewriter) RedirectToQUIC(
 	return r.Rewriter.RedirectToQUIC(ctx, svc)
 }
 
-func (r *AddressRewriter) getPath(egress uint16) (path.OneHop, error) {
+func (r *AddressRewriter) getPath(egress, mtu uint16) (path.OneHop, error) {
 	r.macMtx.Lock()
 	defer r.macMtx.Unlock()
 
-	return path.NewOneHop(egress, time.Now(), 63, r.MAC)
+	return path.NewOneHop(egress, time.Now(), 63, mtu, r.MAC)
 }

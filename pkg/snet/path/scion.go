@@ -24,6 +24,8 @@ type SCION struct {
 	// Raw is the raw representation of this path. This data should not be
 	// modified because it is potentially shared.
 	Raw []byte
+	// MTU is the maximum transmission unit for the path, in bytes.
+	MTU uint16
 }
 
 // NewSCIONFromDecoded serializes the decoded SCION path into a dataplane path.
@@ -42,4 +44,8 @@ func (p SCION) SetPath(s *slayers.SCION) error {
 	}
 	s.Path, s.PathType = &sp, sp.Type()
 	return nil
+}
+
+func (p SCION) GetMTU() uint16 {
+	return p.MTU
 }
