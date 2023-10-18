@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build sqlite_modernc || !sqlite_mattn
+//go:build sqlite_modernc
 
 // Note that above go:build expression makes modernc the default by matching
 // the absence of sqlite_mattn. Should there be more alternatives, please
