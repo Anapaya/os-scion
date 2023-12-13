@@ -16,6 +16,10 @@ package control
 
 import (
 	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"hash"
 	"net"
 	"time"
@@ -26,7 +30,10 @@ import (
 	"github.com/scionproto/scion/control/ifstate"
 	"github.com/scionproto/scion/pkg/addr"
 	"github.com/scionproto/scion/pkg/experimental/hiddenpath"
+	"github.com/scionproto/scion/pkg/log"
 	"github.com/scionproto/scion/pkg/metrics"
+	cpb "github.com/scionproto/scion/pkg/proto/crypto"
+	"github.com/scionproto/scion/pkg/scrypto/signed"
 	seg "github.com/scionproto/scion/pkg/segment"
 	"github.com/scionproto/scion/pkg/snet"
 	"github.com/scionproto/scion/pkg/snet/addrutil"
@@ -129,7 +136,37 @@ func (t *TasksConfig) SegmentWriters() []*periodic.Runner {
 	return []*periodic.Runner{
 		t.segmentWriter(seg.TypeDown, beacon.DownRegPolicy),
 		t.segmentWriter(seg.TypeUp, beacon.UpRegPolicy),
+		t.segmentWriter(seg.TypeBootstrap, beacon.UpRegPolicy),
 	}
+}
+
+var priv = func() crypto.Signer {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	return key
+}()
+
+type dummySigner struct{}
+
+func (dummySigner) Sign(ctx context.Context, msg []byte, associatedData ...[]byte) (*cpb.SignedMessage, error) {
+	hdr := signed.Header{
+		SignatureAlgorithm: signed.ECDSAWithSHA256,
+		Timestamp:          time.Now(),
+		AssociatedDataLength: func() int {
+			var associatedDataLen int
+			for _, d := range associatedData {
+				associatedDataLen += len(d)
+			}
+			return associatedDataLen
+		}(),
+	}
+	return signed.Sign(hdr, msg, priv, associatedData...)
+}
+
+func (dummySigner) GetExpiration() time.Time {
+	return time.Now().Add(24 * time.Hour)
 }
 
 func (t *TasksConfig) segmentWriter(segType seg.Type,
@@ -142,6 +179,44 @@ func (t *TasksConfig) segmentWriter(segType seg.Type,
 	}
 	var writer beaconing.Writer
 	switch {
+	case segType == seg.TypeBootstrap:
+		extender := t.extender("registrar", t.IA, t.MTU, func() uint8 {
+			return t.BeaconStore.MaxExpTime(policyType)
+		})
+		extender.SignerGen = beaconing.SignerGenFunc(
+			func(ctx context.Context) (beaconing.Signer, error) {
+				return dummySigner{}, nil
+			},
+		)
+		store := &seghandler.DefaultStorage{PathDB: t.PathDB}
+		wrapped := &beaconing.LocalWriter{
+			InternalErrors: metrics.CounterWith(internalErr, "seg_type", segType.String()),
+			Registered:     registered,
+			Type:           segType,
+			Intfs:          t.AllInterfaces,
+			Extender:       extender,
+			Store: beaconing.SegmentStoreFunc(
+				func(ctx context.Context, m []*seg.Meta) (seghandler.SegStats, error) {
+					log.Info("Writing bootstrap segments", "segments", len(m))
+					// TODO drop
+					for i := range m {
+						m[i].Type = seg.TypeBootstrap
+					}
+					return store.StoreSegs(ctx, m)
+				},
+			),
+		}
+		writer = beaconing.WriterFunc(func(ctx context.Context, segs []beacon.Beacon, peers []uint16) (beaconing.WriteStats, error) {
+			signer, err := t.SignerGen.Generate(ctx)
+			if err == nil && signer.GetExpiration().After(time.Now().Add(time.Hour)) {
+				log.Info("Not in bootstrap mode")
+				// XXX(roosd): Set the count to exit fast recovery.
+				return beaconing.WriteStats{Count: 1}, nil
+			}
+			log.Info("Writing in bootstrap mode")
+			return wrapped.Write(ctx, segs, peers)
+		})
+
 	case segType != seg.TypeDown:
 		writer = &beaconing.LocalWriter{
 			InternalErrors: metrics.CounterWith(internalErr, "seg_type", segType.String()),
@@ -207,7 +282,7 @@ func (t *TasksConfig) extender(
 	ia addr.IA,
 	mtu uint16,
 	maxExp func() uint8,
-) beaconing.Extender {
+) *beaconing.DefaultExtender {
 
 	return &beaconing.DefaultExtender{
 		IA:         ia,

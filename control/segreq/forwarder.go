@@ -56,7 +56,14 @@ func (f ForwardingLookup) LookupSegments(ctx context.Context, src,
 	if err != nil {
 		return nil, serrors.WrapStr("expanding wildcard request", err)
 	}
-	return f.Fetcher.Fetch(ctx, reqs, false)
+	withBootstrap := append(segfetcher.Requests(nil), reqs...)
+	for _, req := range reqs {
+		if req.SegType == seg.TypeUp {
+			req.SegType = seg.TypeBootstrap
+			withBootstrap = append(withBootstrap, req)
+		}
+	}
+	return f.Fetcher.Fetch(ctx, withBootstrap, false)
 }
 
 // classify validates the request and determines the segment type for the request

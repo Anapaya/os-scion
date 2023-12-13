@@ -77,7 +77,7 @@ func (e *WildcardExpander) providerCoreASes(ctx context.Context) ([]addr.IA, err
 	}
 
 	params := &query.Params{
-		SegTypes: []seg.Type{seg.TypeUp},
+		SegTypes: []seg.Type{seg.TypeUp, seg.TypeBootstrap},
 	}
 	res, err := e.PathDB.Get(ctx, params)
 	if err != nil {

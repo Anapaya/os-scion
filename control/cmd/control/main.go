@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
@@ -199,6 +200,14 @@ func realMain(ctx context.Context) error {
 		return err
 	}
 
+	ephemeralTLSConfig, err := infraenv.GenerateTLSConfig()
+	if err != nil {
+		return err
+	}
+	tlsCertificateLoader := cs.NewTLSCertificateLoader(
+		topo.IA(), x509.ExtKeyUsageServerAuth, trustDB, globalCfg.General.ConfigDir,
+	)
+
 	// FIXME: readability would be improved if we could be consistent with address
 	// representations in NetworkConfig (string or cooked, chose one).
 	nc := infraenv.NetworkConfig{
@@ -212,9 +221,13 @@ func realMain(ctx context.Context) error {
 			// for the public address.
 			Address:     globalCfg.QUIC.Address,
 			TLSVerifier: trust.NewTLSCryptoVerifier(trustDB),
-			GetCertificate: cs.NewTLSCertificateLoader(
-				topo.IA(), x509.ExtKeyUsageServerAuth, trustDB, globalCfg.General.ConfigDir,
-			).GetCertificate,
+			GetCertificate: func(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
+				if cert, err := tlsCertificateLoader.GetCertificate(chi); err == nil {
+					return cert, nil
+				}
+				return &ephemeralTLSConfig.Certificates[0], nil
+			},
+
 			GetClientCertificate: cs.NewTLSCertificateLoader(
 				topo.IA(), x509.ExtKeyUsageClientAuth, trustDB, globalCfg.General.ConfigDir,
 			).GetClientCertificate,
@@ -780,13 +793,15 @@ func realMain(ctx context.Context) error {
 		},
 		SegmentRegister: beaconinggrpc.Registrar{Dialer: dialer},
 		BeaconStore:     beaconStore,
-		SignerGen:       signer.SignerGen,
-		Inspector:       inspector,
-		Metrics:         metrics,
-		DRKeyEngine:     drkeyEngine,
-		MACGen:          macGen,
-		NextHopper:      topo,
-		StaticInfo:      func() *beaconing.StaticInfoCfg { return staticInfo },
+		SignerGen: beaconing.SignerGenFunc(func(ctx context.Context) (beaconing.Signer, error) {
+			return signer.SignerGen.Generate(ctx)
+		}),
+		Inspector:   inspector,
+		Metrics:     metrics,
+		DRKeyEngine: drkeyEngine,
+		MACGen:      macGen,
+		NextHopper:  topo,
+		StaticInfo:  func() *beaconing.StaticInfoCfg { return staticInfo },
 
 		OriginationInterval:       globalCfg.BS.OriginationInterval.Duration,
 		PropagationInterval:       globalCfg.BS.PropagationInterval.Duration,

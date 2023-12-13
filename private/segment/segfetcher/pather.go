@@ -212,7 +212,7 @@ func (p *Pather) translatePath(comb combinator.Path) (snet.Path, error) {
 func categorizeSegs(segs Segments) (up, core, down seg.Segments) {
 	for _, s := range segs {
 		switch s.Type {
-		case seg.TypeUp:
+		case seg.TypeUp, seg.TypeBootstrap:
 			up = append(up, s.Segment)
 		case seg.TypeCore:
 			core = append(core, s.Segment)

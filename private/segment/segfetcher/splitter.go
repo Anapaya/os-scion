@@ -39,6 +39,7 @@ type MultiSegmentSplitter struct {
 // Split splits a path request from the local AS to dst into a set of segment requests.
 func (s *MultiSegmentSplitter) Split(ctx context.Context, dst addr.IA) (Requests, error) {
 
+	const Bootstrap = seg.TypeBootstrap
 	const Up = seg.TypeUp
 	const Down = seg.TypeDown
 	const Core = seg.TypeCore
@@ -54,20 +55,26 @@ func (s *MultiSegmentSplitter) Split(ctx context.Context, dst addr.IA) (Requests
 	case !srcCore && !dstCore:
 		if !singleCore.IsZero() {
 			return Requests{
+				{Src: src, Dst: singleCore, SegType: Bootstrap},
 				{Src: src, Dst: singleCore, SegType: Up},
 				{Src: singleCore, Dst: dst, SegType: Down},
 			}, nil
 		}
 		return Requests{
+			{Src: src, Dst: toWildCard(src), SegType: Bootstrap},
 			{Src: src, Dst: toWildCard(src), SegType: Up},
 			{Src: toWildCard(src), Dst: toWildCard(dst), SegType: Core},
 			{Src: toWildCard(dst), Dst: dst, SegType: Down},
 		}, nil
 	case !srcCore && dstCore:
 		if (src.ISD() == dst.ISD() && dst.IsWildcard()) || singleCore.Equal(dst) {
-			return Requests{{Src: src, Dst: dst, SegType: Up}}, nil
+			return Requests{
+				{Src: src, Dst: dst, SegType: Bootstrap},
+				{Src: src, Dst: dst, SegType: Up},
+			}, nil
 		}
 		return Requests{
+			{Src: src, Dst: toWildCard(src), SegType: Bootstrap},
 			{Src: src, Dst: toWildCard(src), SegType: Up},
 			{Src: toWildCard(src), Dst: dst, SegType: Core},
 		}, nil

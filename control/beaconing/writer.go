@@ -53,6 +53,12 @@ type SegmentStore interface {
 	StoreSegs(context.Context, []*seg.Meta) (seghandler.SegStats, error)
 }
 
+type SegmentStoreFunc func(context.Context, []*seg.Meta) (seghandler.SegStats, error)
+
+func (f SegmentStoreFunc) StoreSegs(ctx context.Context, segs []*seg.Meta) (seghandler.SegStats, error) {
+	return f(ctx, segs)
+}
+
 // RPC registers the path segment with the remote.
 type RPC interface {
 	RegisterSegment(ctx context.Context, meta seg.Meta, remote net.Addr) error
@@ -73,6 +79,12 @@ type Writer interface {
 	// insights about how many segments have been successfully written. The
 	// method should return an error if the writing did fail.
 	Write(ctx context.Context, segs []beacon.Beacon, peers []uint16) (WriteStats, error)
+}
+
+type WriterFunc func(ctx context.Context, segs []beacon.Beacon, peers []uint16) (WriteStats, error)
+
+func (f WriterFunc) Write(ctx context.Context, segs []beacon.Beacon, peers []uint16) (WriteStats, error) {
+	return f(ctx, segs, peers)
 }
 
 var _ periodic.Task = (*WriteScheduler)(nil)
@@ -116,7 +128,14 @@ func (r *WriteScheduler) run(ctx context.Context) error {
 	if !(r.Tick.Overdue(r.lastWrite) || r.Tick.Passed()) {
 		return nil
 	}
-	segments, err := r.Provider.SegmentsToRegister(ctx, r.Type)
+	segType := func() seg.Type {
+		if r.Type == seg.TypeBootstrap {
+			return seg.TypeUp
+		}
+		return r.Type
+	}()
+
+	segments, err := r.Provider.SegmentsToRegister(ctx, segType)
 	if err != nil {
 		return err
 	}

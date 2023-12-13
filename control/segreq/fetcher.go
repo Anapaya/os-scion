@@ -214,6 +214,6 @@ func (p *dstProvider) upPath(ctx context.Context, dst addr.IA) (snet.Path, error
 	return p.segSelector.SelectSeg(ctx, &query.Params{
 		StartsAt: []addr.IA{dst},
 		EndsAt:   []addr.IA{p.localIA},
-		SegTypes: []seg.Type{seg.TypeUp},
+		SegTypes: []seg.Type{seg.TypeUp, seg.TypeBootstrap},
 	})
 }

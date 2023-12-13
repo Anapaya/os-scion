@@ -35,6 +35,9 @@ const (
 	TypeUp   = Type(cppb.SegmentType_SEGMENT_TYPE_UP)
 	TypeDown = Type(cppb.SegmentType_SEGMENT_TYPE_DOWN)
 	TypeCore = Type(cppb.SegmentType_SEGMENT_TYPE_CORE)
+
+	// TypeBootstrap is the bootstrap segment type.
+	TypeBootstrap = Type(8007)
 )
 
 func (t Type) String() string {
@@ -45,6 +48,8 @@ func (t Type) String() string {
 		return "down"
 	case TypeCore:
 		return "core"
+	case TypeBootstrap:
+		return "bootstrap"
 	default:
 		return fmt.Sprintf("UNKNOWN(%d)", t)
 	}
