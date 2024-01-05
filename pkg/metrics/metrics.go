@@ -74,7 +74,6 @@ type Gauge interface {
 type Histogram interface {
 	With(labelValues ...string) Histogram
 	Observe(value float64)
-	Reset()
 }
 
 // CounterAdd increases the passed in counter by the amount specified.
@@ -173,12 +172,4 @@ func HistogramWith(h Histogram, labelValues ...string) Histogram {
 		return nil
 	}
 	return h.With(labelValues...)
-}
-
-// HistogramReset resets the passed in histogram.
-// This is a no-op if h is nil.
-func HistogramReset(h Histogram) {
-	if h != nil {
-		h.Reset()
-	}
 }
