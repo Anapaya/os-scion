@@ -122,7 +122,7 @@ func (g *gauge) Add(delta float64) {
 
 // Reset deletes all metrics in this vector.
 func (g *gauge) Reset() {
-	g.gv.Reset()
+	g.gv.MustCurryWith(makeLabels(g.lvs...)).Reset()
 }
 
 // newGauge wraps the GaugeVec and returns a usable Gauge object.
@@ -168,7 +168,7 @@ func (c *counter) Add(delta float64) {
 
 // Reset deletes all metrics in this vector.
 func (c *counter) Reset() {
-	c.cv.Reset()
+	c.cv.MustCurryWith(makeLabels(c.lvs...)).Reset()
 }
 
 // histogram implements Histogram via a Prometheus HistogramVec. The difference
@@ -205,11 +205,6 @@ func (h *histogram) With(labelValues ...string) Histogram {
 // Observe implements Histogram.
 func (h *histogram) Observe(value float64) {
 	h.hv.With(makeLabels(h.lvs...)).Observe(value)
-}
-
-// Reset deletes all metrics in this vector.
-func (h *histogram) Reset() {
-	h.hv.Reset()
 }
 
 func makeLabels(labelValues ...string) prometheus.Labels {
