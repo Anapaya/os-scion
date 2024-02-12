@@ -47,4 +47,9 @@ message ProbeResponse {
     uint32 session_id = 1;
     // Arbitrary data that was part of the request.
     bytes data = 2;
+    // Load of the gateway, from 0 (no load) to 1 (fully loaded).
+    // Load does not refer to any particular limiting resource.
+    // Load 0.5 simply means that the gateway is able to process twice
+    // as many requests as it is processing at the moment.
+    optional float load = 3;
 }
