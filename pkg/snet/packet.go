@@ -339,21 +339,18 @@ type Packet struct {
 	PacketInfo
 }
 
-type decodeOpts struct {
-	ignorePath bool
+// DecodeOptions can be used to customize the decoding of a packet.
+type DecodeOptions struct {
+	// IgnorePath is an option to ignore the path when decoding a packet. This means
+	// the path in the read packet will not be usable.
+	IgnorePath bool
+	// PacketDecoder is the decoder to use when decoding the packet. If not set,
+	// a new packet decoder is created for each Decode call.
+	PacketDecoder PacketDecoder
 }
 
-type DecodeOpts func(*decodeOpts)
-
-// IgnorePath is an option to ignore the path when decoding a packet. This means
-// the path in the read packet will not be usable.
-func IgnorePath() DecodeOpts {
-	return func(o *decodeOpts) {
-		o.ignorePath = true
-	}
-}
-
-type pktDecoder struct {
+// PacketDecoder is a decoder for SCION packets.
+type PacketDecoder struct {
 	parser     *gopacket.DecodingLayerParser
 	scionLayer *slayers.SCION
 	udpLayer   *slayers.UDP
@@ -361,8 +358,8 @@ type pktDecoder struct {
 	decoded    []gopacket.LayerType
 }
 
-// Decode decodes the Bytes buffer into PacketInfo.
-func (p *Packet) Decode(options ...DecodeOpts) error {
+// NewPacketDecoder creates a new packet decoder.
+func NewPacketDecoder() PacketDecoder {
 	var (
 		scionLayer slayers.SCION
 		hbhLayer   slayers.HopByHopExtnSkipper
@@ -370,30 +367,32 @@ func (p *Packet) Decode(options ...DecodeOpts) error {
 		udpLayer   slayers.UDP
 		scmpLayer  slayers.SCMP
 	)
-	var opt decodeOpts
-	for _, o := range options {
-		o(&opt)
-	}
+
 	parser := gopacket.NewDecodingLayerParser(
 		slayers.LayerTypeSCION, &scionLayer, &hbhLayer, &e2eLayer, &udpLayer, &scmpLayer,
 	)
 	parser.IgnoreUnsupported = true
 	decoded := make([]gopacket.LayerType, 0, 4)
-	return p.decodeWithDecoder(pktDecoder{
+	return PacketDecoder{
 		parser:     parser,
 		scionLayer: &scionLayer,
 		udpLayer:   &udpLayer,
 		scmpLayer:  &scmpLayer,
 		decoded:    decoded,
-	})
+	}
 }
 
 // Decode decodes the Bytes buffer into PacketInfo.
-func (p *Packet) decodeWithDecoder(info pktDecoder, options ...DecodeOpts) error {
-	var opt decodeOpts
-	for _, o := range options {
-		o(&opt)
-	}
+func (p *Packet) Decode() error {
+	return p.DecodeWithOpts(DecodeOptions{
+		PacketDecoder: NewPacketDecoder(),
+	})
+}
+
+// DecodeWithOpts decodes the Bytes buffer into PacketInfo, using the given
+// options. Note that the packet decoder option must be set in the options.
+func (p *Packet) DecodeWithOpts(opts DecodeOptions) error {
+	info := opts.PacketDecoder
 	if err := info.parser.DecodeLayers(p.Bytes, &info.decoded); err != nil {
 		return err
 	}
@@ -415,7 +414,7 @@ func (p *Packet) decodeWithDecoder(info pktDecoder, options ...DecodeOpts) error
 	p.Destination = SCIONAddress{IA: info.scionLayer.DstIA, Host: dstAddr}
 	p.Source = SCIONAddress{IA: info.scionLayer.SrcIA, Host: srcAddr}
 
-	if !opt.ignorePath {
+	if !opts.IgnorePath {
 		rpath := RawPath{
 			PathType: info.scionLayer.Path.Type(),
 		}
@@ -559,29 +558,17 @@ func (p *Packet) decodeWithDecoder(info pktDecoder, options ...DecodeOpts) error
 	return nil
 }
 
-type serializeOpt struct {
-	Buffer          gopacket.SerializeBuffer
+type SerializeOptions struct {
+	// Buffer is the buffer to use for serialization. If not set, a new buffer
+	// is created.
+	Buffer gopacket.SerializeBuffer
+	// SerializeLayers is the layers to use for serialization. If not set, a new
+	// slice is allocated.
 	SerializeLayers []gopacket.SerializableLayer
 }
 
-type SerializeOption func(*serializeOpt)
-
-// WithBuffer sets the buffer to use for serialization.
-func WithBuffer(buf gopacket.SerializeBuffer) SerializeOption {
-	return func(o *serializeOpt) {
-		o.Buffer = buf
-	}
-}
-
-// WithSerializeLayers sets the layers to use for serialization.
-func WithSerializeLayers(layers []gopacket.SerializableLayer) SerializeOption {
-	return func(o *serializeOpt) {
-		o.SerializeLayers = layers
-	}
-}
-
 // Serialize serializes the PacketInfo into the raw buffer of the packet.
-func (p *Packet) Serialize(opts ...SerializeOption) error {
+func (p *Packet) SerializeWithOpts(opts SerializeOptions) error {
 	p.Prepare()
 	if p.Payload == nil {
 		return serrors.New("no payload set")
@@ -589,13 +576,9 @@ func (p *Packet) Serialize(opts ...SerializeOption) error {
 	if p.Path == nil {
 		return serrors.New("no path set")
 	}
-	var opt serializeOpt
-	for _, o := range opts {
-		o(&opt)
-	}
 	var packetLayers []gopacket.SerializableLayer
-	if opt.SerializeLayers != nil {
-		packetLayers = opt.SerializeLayers[:0]
+	if opts.SerializeLayers != nil {
+		packetLayers = opts.SerializeLayers[:0]
 	}
 
 	var scionLayer slayers.SCION
@@ -629,7 +612,7 @@ func (p *Packet) Serialize(opts ...SerializeOption) error {
 	packetLayers = append(packetLayers, &scionLayer)
 	packetLayers = append(packetLayers, p.Payload.toLayers(&scionLayer)...)
 
-	buffer := opt.Buffer
+	buffer := opts.Buffer
 	if buffer == nil {
 		buffer = gopacket.NewSerializeBuffer()
 	}
