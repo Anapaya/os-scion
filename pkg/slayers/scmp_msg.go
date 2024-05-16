@@ -333,12 +333,12 @@ type SCMPTraceroute struct {
 }
 
 // LayerType returns LayerTypeSCMPTraceroute.
-func (*SCMPTraceroute) LayerType() gopacket.LayerType {
+func (SCMPTraceroute) LayerType() gopacket.LayerType {
 	return LayerTypeSCMPTraceroute
 }
 
 // NextLayerType returns the layer type contained by this DecodingLayer.
-func (*SCMPTraceroute) NextLayerType() gopacket.LayerType {
+func (SCMPTraceroute) NextLayerType() gopacket.LayerType {
 	return gopacket.LayerTypePayload
 }
 
@@ -367,7 +367,7 @@ func (i *SCMPTraceroute) DecodeFromBytes(data []byte, df gopacket.DecodeFeedback
 
 // SerializeTo writes the serialized form of this layer into the
 // SerializationBuffer, implementing gopacket.SerializableLayer.
-func (i *SCMPTraceroute) SerializeTo(b gopacket.SerializeBuffer,
+func (i SCMPTraceroute) SerializeTo(b gopacket.SerializeBuffer,
 	opts gopacket.SerializeOptions) error {
 
 	buf, err := b.PrependBytes(2 + 2 + addr.IABytes + scmpRawInterfaceLen)

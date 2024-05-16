@@ -62,18 +62,18 @@ type SCMP struct {
 }
 
 // LayerType returns LayerTypeSCMP.
-func (s *SCMP) LayerType() gopacket.LayerType {
+func (s SCMP) LayerType() gopacket.LayerType {
 	return LayerTypeSCMP
 }
 
 // CanDecode returns the set of layer types that this DecodingLayer can decode.
-func (s *SCMP) CanDecode() gopacket.LayerClass {
+func (s SCMP) CanDecode() gopacket.LayerClass {
 	return LayerClassSCMP
 }
 
 // NextLayerType use the typecode to select the right next decoder.
 // If the SCMP type is unknown, the next layer is gopacket.LayerTypePayload.
-func (s *SCMP) NextLayerType() gopacket.LayerType {
+func (s SCMP) NextLayerType() gopacket.LayerType {
 	switch s.TypeCode.Type() {
 	case SCMPTypeDestinationUnreachable:
 		return LayerTypeSCMPDestinationUnreachable
@@ -95,7 +95,7 @@ func (s *SCMP) NextLayerType() gopacket.LayerType {
 
 // SerializeTo writes the serialized form of this layer into the
 // SerializationBuffer, implementing gopacket.SerializableLayer.
-func (s *SCMP) SerializeTo(b gopacket.SerializeBuffer, opts gopacket.SerializeOptions) error {
+func (s SCMP) SerializeTo(b gopacket.SerializeBuffer, opts gopacket.SerializeOptions) error {
 	bytes, err := b.PrependBytes(4)
 	if err != nil {
 		return err
@@ -131,8 +131,8 @@ func (s *SCMP) DecodeFromBytes(data []byte, df gopacket.DecodeFeedback) error {
 	return nil
 }
 
-func (s *SCMP) String() string {
-	return fmt.Sprintf("%s(%d)\nPayload: %s", &s.TypeCode, s.Checksum, s.Payload)
+func (s SCMP) String() string {
+	return fmt.Sprintf("%s(%d)\nPayload: %s", s.TypeCode, s.Checksum, s.Payload)
 }
 
 // SetNetworkLayerForChecksum tells this layer which network layer is wrapping it.
