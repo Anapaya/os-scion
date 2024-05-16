@@ -254,7 +254,7 @@ type SCMPTracerouteRequest struct {
 
 func (m SCMPTracerouteRequest) toLayers(scn *slayers.SCION) []gopacket.SerializableLayer {
 	return toLayers(m, scn,
-		&slayers.SCMPTraceroute{
+		slayers.SCMPTraceroute{
 			Identifier: m.Identifier,
 			Sequence:   m.Sequence,
 		},
@@ -282,7 +282,7 @@ type SCMPTracerouteReply struct {
 
 func (m SCMPTracerouteReply) toLayers(scn *slayers.SCION) []gopacket.SerializableLayer {
 	return toLayers(m, scn,
-		&slayers.SCMPTraceroute{
+		slayers.SCMPTraceroute{
 			Identifier: m.Identifier,
 			Sequence:   m.Sequence,
 			IA:         m.IA,
@@ -302,21 +302,20 @@ func (m SCMPTracerouteReply) length() int {
 	return 24
 }
 
-func toLayers(scmpPld SCMPPayload,
-	scn *slayers.SCION, details gopacket.SerializableLayer,
-	payload []byte) []gopacket.SerializableLayer {
+func toLayers(
+	scmpPld SCMPPayload,
+	scn *slayers.SCION,
+	details gopacket.SerializableLayer,
+	payload []byte,
+) []gopacket.SerializableLayer {
 
 	scn.NextHdr = slayers.L4SCMP
-	scmp := &slayers.SCMP{TypeCode: slayers.CreateSCMPTypeCode(scmpPld.Type(), scmpPld.Code())}
+	scmp := slayers.SCMP{TypeCode: slayers.CreateSCMPTypeCode(scmpPld.Type(), scmpPld.Code())}
 	scmp.SetNetworkLayerForChecksum(scn)
-	l := []gopacket.SerializableLayer{
-		scmp,
-		details,
+	if payload == nil {
+		return []gopacket.SerializableLayer{scmp, details}
 	}
-	if payload != nil {
-		l = append(l, gopacket.Payload(payload))
-	}
-	return l
+	return []gopacket.SerializableLayer{scmp, details, gopacket.Payload(payload)}
 }
 
 // RawPath is the unprocessed path that is read from a received SCION packet
@@ -340,8 +339,27 @@ type Packet struct {
 	PacketInfo
 }
 
-// Decode decodes the Bytes buffer into PacketInfo.
-func (p *Packet) Decode() error {
+// DecodeOptions can be used to customize the decoding of a packet.
+type DecodeOptions struct {
+	// IgnorePath is an option to ignore the path when decoding a packet. This means
+	// the path in the read packet will not be usable.
+	IgnorePath bool
+	// PacketDecoder is the decoder to use when decoding the packet. If not set,
+	// a new packet decoder is created for each Decode call.
+	PacketDecoder PacketDecoder
+}
+
+// PacketDecoder is a decoder for SCION packets.
+type PacketDecoder struct {
+	parser     *gopacket.DecodingLayerParser
+	scionLayer *slayers.SCION
+	udpLayer   *slayers.UDP
+	scmpLayer  *slayers.SCMP
+	decoded    []gopacket.LayerType
+}
+
+// NewPacketDecoder creates a new packet decoder.
+func NewPacketDecoder() PacketDecoder {
 	var (
 		scionLayer slayers.SCION
 		hbhLayer   slayers.HopByHopExtnSkipper
@@ -349,52 +367,75 @@ func (p *Packet) Decode() error {
 		udpLayer   slayers.UDP
 		scmpLayer  slayers.SCMP
 	)
+
 	parser := gopacket.NewDecodingLayerParser(
 		slayers.LayerTypeSCION, &scionLayer, &hbhLayer, &e2eLayer, &udpLayer, &scmpLayer,
 	)
 	parser.IgnoreUnsupported = true
 	decoded := make([]gopacket.LayerType, 0, 4)
-	if err := parser.DecodeLayers(p.Bytes, &decoded); err != nil {
+	return PacketDecoder{
+		parser:     parser,
+		scionLayer: &scionLayer,
+		udpLayer:   &udpLayer,
+		scmpLayer:  &scmpLayer,
+		decoded:    decoded,
+	}
+}
+
+// Decode decodes the Bytes buffer into PacketInfo.
+func (p *Packet) Decode() error {
+	return p.DecodeWithOpts(DecodeOptions{
+		PacketDecoder: NewPacketDecoder(),
+	})
+}
+
+// DecodeWithOpts decodes the Bytes buffer into PacketInfo, using the given
+// options. Note that the packet decoder option must be set in the options.
+func (p *Packet) DecodeWithOpts(opts DecodeOptions) error {
+	info := opts.PacketDecoder
+	if err := info.parser.DecodeLayers(p.Bytes, &info.decoded); err != nil {
 		return err
 	}
-	if len(decoded) < 2 {
+	if len(info.decoded) < 2 {
 		return serrors.New("L4 not decoded")
 	}
-	l4 := decoded[len(decoded)-1]
+	l4 := info.decoded[len(info.decoded)-1]
 	if l4 != slayers.LayerTypeSCMP && l4 != slayers.LayerTypeSCIONUDP {
 		return serrors.New("unknown L4 layer decoded", "type", l4)
 	}
-	dstAddr, err := scionLayer.DstAddr()
+	dstAddr, err := info.scionLayer.DstAddr()
 	if err != nil {
 		return serrors.WrapStr("extracting destination address", err)
 	}
-	srcAddr, err := scionLayer.SrcAddr()
+	srcAddr, err := info.scionLayer.SrcAddr()
 	if err != nil {
 		return serrors.WrapStr("extracting source address", err)
 	}
-	p.Destination = SCIONAddress{IA: scionLayer.DstIA, Host: dstAddr}
-	p.Source = SCIONAddress{IA: scionLayer.SrcIA, Host: srcAddr}
+	p.Destination = SCIONAddress{IA: info.scionLayer.DstIA, Host: dstAddr}
+	p.Source = SCIONAddress{IA: info.scionLayer.SrcIA, Host: srcAddr}
 
-	rpath := RawPath{
-		PathType: scionLayer.Path.Type(),
-	}
-	if l := scionLayer.Path.Len(); l != 0 {
-		rpath.Raw = make([]byte, l)
-		if err := scionLayer.Path.SerializeTo(rpath.Raw); err != nil {
-			return serrors.WrapStr("extracting path", err)
+	if !opts.IgnorePath {
+		rpath := RawPath{
+			PathType: info.scionLayer.Path.Type(),
 		}
+		if l := info.scionLayer.Path.Len(); l != 0 {
+			rpath.Raw = make([]byte, l)
+			if err := info.scionLayer.Path.SerializeTo(rpath.Raw); err != nil {
+				return serrors.WrapStr("extracting path", err)
+			}
+		}
+		p.Path = rpath
 	}
-	p.Path = rpath
 
 	switch l4 {
 	case slayers.LayerTypeSCIONUDP:
 		p.Payload = UDPPayload{
-			SrcPort: udpLayer.SrcPort,
-			DstPort: udpLayer.DstPort,
-			Payload: udpLayer.Payload,
+			SrcPort: info.udpLayer.SrcPort,
+			DstPort: info.udpLayer.DstPort,
+			Payload: info.udpLayer.Payload,
 		}
 	case slayers.LayerTypeSCMP:
-		gpkt := gopacket.NewPacket(scmpLayer.Payload, scmpLayer.NextLayerType(),
+		gpkt := gopacket.NewPacket(info.scmpLayer.Payload, info.scmpLayer.NextLayerType(),
 			gopacket.DecodeOptions{})
 		layers := gpkt.Layers()
 		if len(layers) == 0 || len(layers) > 2 {
@@ -402,23 +443,23 @@ func (p *Packet) Decode() error {
 		}
 
 		layer := layers[0]
-		switch scmpLayer.TypeCode.Type() {
+		switch info.scmpLayer.TypeCode.Type() {
 		case slayers.SCMPTypeDestinationUnreachable:
 			v, ok := layer.(*slayers.SCMPDestinationUnreachable)
 			if !ok {
 				return serrors.New("invalid SCMP packet",
-					"scmp.type", scmpLayer.TypeCode,
+					"scmp.type", info.scmpLayer.TypeCode,
 					"payload.type", common.TypeOf(layer))
 			}
 			p.Payload = SCMPDestinationUnreachable{
-				code:    scmpLayer.TypeCode.Code(),
+				code:    info.scmpLayer.TypeCode.Code(),
 				Payload: v.Payload,
 			}
 		case slayers.SCMPTypePacketTooBig:
 			v, ok := layer.(*slayers.SCMPPacketTooBig)
 			if !ok {
 				return serrors.New("invalid SCMP packet",
-					"scmp.type", scmpLayer.TypeCode,
+					"scmp.type", info.scmpLayer.TypeCode,
 					"payload.type", common.TypeOf(layer))
 			}
 			p.Payload = SCMPPacketTooBig{
@@ -429,11 +470,11 @@ func (p *Packet) Decode() error {
 			v, ok := layer.(*slayers.SCMPParameterProblem)
 			if !ok {
 				return serrors.New("invalid SCMP packet",
-					"scmp.type", scmpLayer.TypeCode,
+					"scmp.type", info.scmpLayer.TypeCode,
 					"payload.type", common.TypeOf(layer))
 			}
 			p.Payload = SCMPParameterProblem{
-				code:    scmpLayer.TypeCode.Code(),
+				code:    info.scmpLayer.TypeCode.Code(),
 				Pointer: v.Pointer,
 				Payload: v.Payload,
 			}
@@ -441,7 +482,7 @@ func (p *Packet) Decode() error {
 			v, ok := layer.(*slayers.SCMPExternalInterfaceDown)
 			if !ok {
 				return serrors.New("invalid SCMP packet",
-					"scmp.type", scmpLayer.TypeCode,
+					"scmp.type", info.scmpLayer.TypeCode,
 					"payload.type", common.TypeOf(layer))
 			}
 			p.Payload = SCMPExternalInterfaceDown{
@@ -453,7 +494,7 @@ func (p *Packet) Decode() error {
 			v, ok := layer.(*slayers.SCMPInternalConnectivityDown)
 			if !ok {
 				return serrors.New("invalid SCMP packet",
-					"scmp.type", scmpLayer.TypeCode,
+					"scmp.type", info.scmpLayer.TypeCode,
 					"payload.type", common.TypeOf(layer))
 			}
 			p.Payload = SCMPInternalConnectivityDown{
@@ -466,7 +507,7 @@ func (p *Packet) Decode() error {
 			v, ok := layer.(*slayers.SCMPEcho)
 			if !ok {
 				return serrors.New("invalid SCMP packet",
-					"scmp.type", scmpLayer.TypeCode,
+					"scmp.type", info.scmpLayer.TypeCode,
 					"payload.type", common.TypeOf(layer))
 			}
 			p.Payload = SCMPEchoRequest{
@@ -478,7 +519,7 @@ func (p *Packet) Decode() error {
 			v, ok := layer.(*slayers.SCMPEcho)
 			if !ok {
 				return serrors.New("invalid SCMP packet",
-					"scmp.type", scmpLayer.TypeCode,
+					"scmp.type", info.scmpLayer.TypeCode,
 					"payload.type", common.TypeOf(layer))
 			}
 			p.Payload = SCMPEchoReply{
@@ -490,7 +531,7 @@ func (p *Packet) Decode() error {
 			v, ok := layer.(*slayers.SCMPTraceroute)
 			if !ok {
 				return serrors.New("invalid SCMP packet",
-					"scmp.type", scmpLayer.TypeCode,
+					"scmp.type", info.scmpLayer.TypeCode,
 					"payload.type", common.TypeOf(layer))
 			}
 			p.Payload = SCMPTracerouteRequest{
@@ -501,7 +542,7 @@ func (p *Packet) Decode() error {
 			v, ok := layer.(*slayers.SCMPTraceroute)
 			if !ok {
 				return serrors.New("invalid SCMP packet",
-					"scmp.type", scmpLayer.TypeCode,
+					"scmp.type", info.scmpLayer.TypeCode,
 					"payload.type", common.TypeOf(layer))
 			}
 			p.Payload = SCMPTracerouteReply{
@@ -511,14 +552,29 @@ func (p *Packet) Decode() error {
 				Interface:  v.Interface,
 			}
 		default:
-			return serrors.New("unhandled SCMP type", "type", scmpLayer.TypeCode, "src", p.Source)
+			return serrors.New("unhandled SCMP type", "type", info.scmpLayer.TypeCode, "src", p.Source)
 		}
 	}
 	return nil
 }
 
+type SerializeOptions struct {
+	// Buffer is the buffer to use for serialization. If not set, a new buffer
+	// is created.
+	Buffer gopacket.SerializeBuffer
+	// SerializeLayers is the layers to use for serialization. If not set, a new
+	// slice is allocated.
+	SerializeLayers []gopacket.SerializableLayer
+}
+
 // Serialize serializes the PacketInfo into the raw buffer of the packet.
 func (p *Packet) Serialize() error {
+	return p.SerializeWithOpts(SerializeOptions{})
+}
+
+// SerializeWithOpts serializes the PacketInfo into the raw buffer of the
+// packet, using the given options.
+func (p *Packet) SerializeWithOpts(opts SerializeOptions) error {
 	p.Prepare()
 	if p.Payload == nil {
 		return serrors.New("no payload set")
@@ -527,6 +583,9 @@ func (p *Packet) Serialize() error {
 		return serrors.New("no path set")
 	}
 	var packetLayers []gopacket.SerializableLayer
+	if opts.SerializeLayers != nil {
+		packetLayers = opts.SerializeLayers[:0]
+	}
 
 	var scionLayer slayers.SCION
 	scionLayer.Version = 0
@@ -559,7 +618,10 @@ func (p *Packet) Serialize() error {
 	packetLayers = append(packetLayers, &scionLayer)
 	packetLayers = append(packetLayers, p.Payload.toLayers(&scionLayer)...)
 
-	buffer := gopacket.NewSerializeBuffer()
+	buffer := opts.Buffer
+	if buffer == nil {
+		buffer = gopacket.NewSerializeBuffer()
+	}
 	options := gopacket.SerializeOptions{
 		ComputeChecksums: true,
 		FixLengths:       true,
