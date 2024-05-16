@@ -18,7 +18,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/google/gopacket"
 	"github.com/scionproto/scion/pkg/addr"
 	"github.com/scionproto/scion/pkg/metrics"
 	"github.com/scionproto/scion/pkg/private/common"
@@ -115,14 +114,12 @@ type SCIONPacketConn struct {
 	// Metrics are the metrics exported by the conn.
 	Metrics SCIONPacketConnMetrics
 
-	// SerializeOpts can be used to customize the serialization of packets sent
+	// SerializeOptions can be used to customize the serialization of packets sent
 	// with this connection. Only use this if you know what you are doing.
-	SerializeOpts []SerializeOption
-	// DecodeOpts can be used to customize the decoding of packets received with
+	SerializeOptions SerializeOptions
+	// DecodeOptions can be used to customize the decoding of packets received with
 	// this connection. Only use this if you know what you are doing.
-	DecodeOpts []DecodeOpts
-
-	decoder pktDecoder
+	DecodeOptions DecodeOptions
 }
 
 func (c *SCIONPacketConn) SetDeadline(d time.Time) error {
@@ -135,7 +132,7 @@ func (c *SCIONPacketConn) Close() error {
 }
 
 func (c *SCIONPacketConn) WriteTo(pkt *Packet, ov *net.UDPAddr) error {
-	if err := pkt.Serialize(c.SerializeOpts...); err != nil {
+	if err := pkt.SerializeWithOpts(c.SerializeOptions); err != nil {
 		return serrors.WrapStr("serialize SCION packet", err)
 	}
 
@@ -199,29 +196,7 @@ func (c *SCIONPacketConn) readFrom(pkt *Packet, ov *net.UDPAddr) error {
 			"Actual", lastHopNetAddr)
 	}
 
-	// check if the decoder was already initialized, if not do it now.
-	if c.decoder.parser == nil {
-		var (
-			scionLayer slayers.SCION
-			hbhLayer   slayers.HopByHopExtnSkipper
-			e2eLayer   slayers.EndToEndExtnSkipper
-			udpLayer   slayers.UDP
-			scmpLayer  slayers.SCMP
-		)
-		parser := gopacket.NewDecodingLayerParser(
-			slayers.LayerTypeSCION, &scionLayer, &hbhLayer, &e2eLayer, &udpLayer, &scmpLayer,
-		)
-		parser.IgnoreUnsupported = true
-		decoded := make([]gopacket.LayerType, 0, 4)
-		c.decoder = pktDecoder{
-			parser:     parser,
-			scionLayer: &scionLayer,
-			udpLayer:   &udpLayer,
-			scmpLayer:  &scmpLayer,
-			decoded:    decoded,
-		}
-	}
-	if err := pkt.decodeWithDecoder(c.decoder); err != nil {
+	if err := pkt.DecodeWithOpts(c.DecodeOptions); err != nil {
 		metrics.CounterInc(c.Metrics.ParseErrors)
 		return serrors.WrapStr("decoding packet", err)
 	}
