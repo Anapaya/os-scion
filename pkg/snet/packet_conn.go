@@ -85,21 +85,21 @@ type SCIONAddress = addr.Addr
 
 type SCIONPacketConnMetrics struct {
 	// Closes records the total number of Close calls on the connection.
-	Closes metrics.Counter
+	Closes metrics.SimpleCounter
 	// ReadBytes records the total number of bytes read on the connection.
-	ReadBytes metrics.Counter
+	ReadBytes metrics.SimpleCounter
 	// WriteBytes records the total number of bytes written on the connection.
-	WriteBytes metrics.Counter
+	WriteBytes metrics.SimpleCounter
 	// ReadPackets records the total number of packets read on the connection.
-	ReadPackets metrics.Counter
+	ReadPackets metrics.SimpleCounter
 	// WritePackets records the total number of packets written on the connection.
-	WritePackets metrics.Counter
+	WritePackets metrics.SimpleCounter
 	// ParseErrors records the total number of parse errors encountered.
-	ParseErrors metrics.Counter
+	ParseErrors metrics.SimpleCounter
 	// SCMPErrors records the total number of SCMP Errors encountered.
-	SCMPErrors metrics.Counter
+	SCMPErrors metrics.SimpleCounter
 	// DispatcherErrors records the number of dispatcher errors encountered.
-	DispatcherErrors metrics.Counter
+	DispatcherErrors metrics.SimpleCounter
 }
 
 // SCIONPacketConn gives applications full control over the content of valid SCION
@@ -113,6 +113,13 @@ type SCIONPacketConn struct {
 	SCMPHandler SCMPHandler
 	// Metrics are the metrics exported by the conn.
 	Metrics SCIONPacketConnMetrics
+
+	// SerializeOptions can be used to customize the serialization of packets sent
+	// with this connection. Only use this if you know what you are doing.
+	SerializeOptions SerializeOptions
+	// DecodeOptions can be used to customize the decoding of packets received with
+	// this connection. Only use this if you know what you are doing.
+	DecodeOptions DecodeOptions
 }
 
 func (c *SCIONPacketConn) SetDeadline(d time.Time) error {
@@ -125,7 +132,7 @@ func (c *SCIONPacketConn) Close() error {
 }
 
 func (c *SCIONPacketConn) WriteTo(pkt *Packet, ov *net.UDPAddr) error {
-	if err := pkt.Serialize(); err != nil {
+	if err := pkt.SerializeWithOpts(c.SerializeOptions); err != nil {
 		return serrors.WrapStr("serialize SCION packet", err)
 	}
 
@@ -189,7 +196,7 @@ func (c *SCIONPacketConn) readFrom(pkt *Packet, ov *net.UDPAddr) error {
 			"Actual", lastHopNetAddr)
 	}
 
-	if err := pkt.Decode(); err != nil {
+	if err := pkt.DecodeWithOpts(c.DecodeOptions); err != nil {
 		metrics.CounterInc(c.Metrics.ParseErrors)
 		return serrors.WrapStr("decoding packet", err)
 	}

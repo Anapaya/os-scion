@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/scionproto/scion/pkg/private/prom"
+	"github.com/scionproto/scion/pkg/private/serrors"
 )
 
 // Namespace is the metrics namespace for the metrics in this package.
@@ -77,22 +78,33 @@ func (l IOLabels) Values() []string {
 }
 
 type metrics struct {
-	dials     *prometheus.CounterVec
-	registers *prometheus.CounterVec
-	reads     *prometheus.HistogramVec
-	writes    *prometheus.HistogramVec
+	dials         *prometheus.CounterVec
+	registers     *prometheus.CounterVec
+	readsSuccess  prometheus.Observer
+	readsTimeout  prometheus.Observer
+	readsErrors   prometheus.Observer
+	writesSuccess prometheus.Observer
+	writesTimeout prometheus.Observer
+	writesErrors  prometheus.Observer
 }
 
 func newMetrics() metrics {
+	readsHist := prom.NewHistogramVecWithLabels(Namespace, sub, "reads_total",
+		"Total number of Read calls", IOLabels{}, prom.DefaultSizeBuckets)
+	writesHist := prom.NewHistogramVecWithLabels(Namespace, sub, "writes_total",
+		"Total number of Write calls", IOLabels{}, prom.DefaultSizeBuckets)
+
 	return metrics{
 		dials: prom.NewCounterVecWithLabels(Namespace, sub, "dials_total",
 			"Total number of Dial calls.", DialLabels{}),
 		registers: prom.NewCounterVecWithLabels(Namespace, sub, "registers_total",
 			"Total number of Register calls.", RegisterLabels{}),
-		reads: prom.NewHistogramVecWithLabels(Namespace, sub, "reads_total",
-			"Total number of Read calls", IOLabels{}, prom.DefaultSizeBuckets),
-		writes: prom.NewHistogramVecWithLabels(Namespace, sub, "writes_total",
-			"Total number of Write calls", IOLabels{}, prom.DefaultSizeBuckets),
+		readsSuccess:  readsHist.WithLabelValues(prom.Success),
+		readsTimeout:  readsHist.WithLabelValues(prom.ErrTimeout),
+		readsErrors:   readsHist.WithLabelValues(prom.ErrNotClassified),
+		writesSuccess: writesHist.WithLabelValues(prom.Success),
+		writesTimeout: writesHist.WithLabelValues(prom.ErrTimeout),
+		writesErrors:  writesHist.WithLabelValues(prom.ErrNotClassified),
 	}
 }
 
@@ -104,10 +116,24 @@ func (m metrics) Registers(l RegisterLabels) prometheus.Counter {
 	return m.registers.WithLabelValues(l.Values()...)
 }
 
-func (m metrics) Reads(l IOLabels) prometheus.Observer {
-	return m.reads.WithLabelValues(l.Values()...)
+func (m metrics) Reads(err error) prometheus.Observer {
+	switch {
+	case err == nil:
+		return m.readsSuccess
+	case serrors.IsTimeout(err):
+		return m.readsTimeout
+	default:
+		return m.readsErrors
+	}
 }
 
-func (m metrics) Writes(l IOLabels) prometheus.Observer {
-	return m.writes.WithLabelValues(l.Values()...)
+func (m metrics) Writes(err error) prometheus.Observer {
+	switch {
+	case err == nil:
+		return m.writesSuccess
+	case serrors.IsTimeout(err):
+		return m.writesTimeout
+	default:
+		return m.writesErrors
+	}
 }

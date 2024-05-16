@@ -266,7 +266,7 @@ func registrationExchange(conn *Conn, reg *Registration) (uint16, error) {
 // (usually, the border router) which sent the message.
 func (conn *Conn) ReadFrom(buf []byte) (int, net.Addr, error) {
 	n, addr, err := conn.readFrom(buf)
-	metrics.M.Reads(metrics.IOLabels{Result: labelResult(err)}).Observe(float64(n))
+	metrics.M.Reads(err).Observe(float64(n))
 	return n, addr, err
 }
 
@@ -302,7 +302,7 @@ func (conn *Conn) readFrom(buf []byte) (int, net.Addr, error) {
 // is always len(buf).
 func (conn *Conn) WriteTo(buf []byte, dst net.Addr) (int, error) {
 	n, err := conn.writeTo(buf, dst)
-	metrics.M.Writes(metrics.IOLabels{Result: labelResult(err)}).Observe(float64(n))
+	metrics.M.Writes(err).Observe(float64(n))
 	return n, err
 }
 
