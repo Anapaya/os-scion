@@ -31,9 +31,7 @@ import (
 	"github.com/scionproto/scion/pkg/log"
 	"github.com/scionproto/scion/pkg/private/serrors"
 	"github.com/scionproto/scion/pkg/slayers"
-	"github.com/scionproto/scion/pkg/slayers/path/onehop"
 	"github.com/scionproto/scion/pkg/snet"
-	snetpath "github.com/scionproto/scion/pkg/snet/path"
 )
 
 const (
@@ -493,19 +491,15 @@ func (d ConnDialer) selectVersions(local, remote net.Addr) bool {
 	}
 
 	// Extract MTU and path size.
-	switch p := path.(type) {
-	case snetpath.SCION:
-		mtu = int(p.MTU)
-		pathBytes = len(p.Raw)
-	case snetpath.OneHop:
-		mtu = int(p.MTU)
-		pathBytes = onehop.PathLen
-	case snet.RawReplyPath:
-		mtu = int(p.MTU)
-		pathBytes = p.Path.Len()
-	default:
+	pi, ok := path.(interface {
+		GetMTU() uint16
+		GetLength() int
+	})
+	if !ok {
 		return false
 	}
+	mtu = int(pi.GetMTU())
+	pathBytes = pi.GetLength()
 	// If the MTU is not set, we default to the native quic version.
 	if mtu == 0 {
 		return false
