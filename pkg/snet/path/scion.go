@@ -49,3 +49,7 @@ func (p SCION) SetPath(s *slayers.SCION) error {
 func (p SCION) GetMTU() uint16 {
 	return p.MTU
 }
+
+func (p SCION) GetLength() int {
+	return len(p.Raw)
+}
