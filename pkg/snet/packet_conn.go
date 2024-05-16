@@ -124,6 +124,13 @@ type SCIONPacketConn struct {
 	Metrics SCIONPacketConnMetrics
 	// Topology provides interface information for the local AS.
 	Topology Topology
+
+	// SerializeOptions can be used to customize the serialization of packets sent
+	// with this connection. Only use this if you know what you are doing.
+	SerializeOptions SerializeOptions
+	// DecodeOptions can be used to customize the decoding of packets received with
+	// this connection. Only use this if you know what you are doing.
+	DecodeOptions DecodeOptions
 }
 
 // sysPacketConn is a wrapper interface around net.PacketConn.
@@ -149,7 +156,7 @@ func (c *SCIONPacketConn) Close() error {
 }
 
 func (c *SCIONPacketConn) WriteTo(pkt *Packet, ov *net.UDPAddr) error {
-	if err := pkt.Serialize(); err != nil {
+	if err := pkt.SerializeWithOpts(c.SerializeOptions); err != nil {
 		return serrors.Wrap("serialize SCION packet", err)
 	}
 
@@ -222,7 +229,12 @@ func (c *SCIONPacketConn) readFrom(pkt *Packet) (*net.UDPAddr, error) {
 	metrics.CounterInc(c.Metrics.ReadPackets)
 
 	pkt.Bytes = pkt.Bytes[:n]
-	if err := pkt.Decode(); err != nil {
+	if c.DecodeOptions.PacketDecoder.parser != nil {
+		err = pkt.DecodeWithOpts(c.DecodeOptions)
+	} else {
+		err = pkt.Decode()
+	}
+	if err != nil {
 		metrics.CounterInc(c.Metrics.ParseErrors)
 		// XXX(JordiSubira): We avoid bubbling up parsing errors to the
 		// caller application to avoid problems with applications
