@@ -113,6 +113,13 @@ type SCIONPacketConn struct {
 	SCMPHandler SCMPHandler
 	// Metrics are the metrics exported by the conn.
 	Metrics SCIONPacketConnMetrics
+
+	// SerializeOptions can be used to customize the serialization of packets sent
+	// with this connection. Only use this if you know what you are doing.
+	SerializeOptions SerializeOptions
+	// DecodeOptions can be used to customize the decoding of packets received with
+	// this connection. Only use this if you know what you are doing.
+	DecodeOptions DecodeOptions
 }
 
 func (c *SCIONPacketConn) SetDeadline(d time.Time) error {
@@ -125,7 +132,7 @@ func (c *SCIONPacketConn) Close() error {
 }
 
 func (c *SCIONPacketConn) WriteTo(pkt *Packet, ov *net.UDPAddr) error {
-	if err := pkt.Serialize(); err != nil {
+	if err := pkt.SerializeWithOpts(c.SerializeOptions); err != nil {
 		return serrors.WrapStr("serialize SCION packet", err)
 	}
 
@@ -189,7 +196,7 @@ func (c *SCIONPacketConn) readFrom(pkt *Packet, ov *net.UDPAddr) error {
 			"Actual", lastHopNetAddr)
 	}
 
-	if err := pkt.Decode(); err != nil {
+	if err := pkt.DecodeWithOpts(c.DecodeOptions); err != nil {
 		metrics.CounterInc(c.Metrics.ParseErrors)
 		return serrors.WrapStr("decoding packet", err)
 	}
