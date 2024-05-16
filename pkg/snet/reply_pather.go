@@ -64,3 +64,7 @@ func (p RawReplyPath) SetPath(s *slayers.SCION) error {
 func (p RawReplyPath) GetMTU() uint16 {
 	return p.MTU
 }
+
+func (p RawReplyPath) GetLength() int {
+	return p.Path.Len()
+}

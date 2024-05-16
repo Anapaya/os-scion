@@ -49,6 +49,10 @@ func (p OneHop) GetMTU() uint16 {
 	return p.MTU
 }
 
+func (p OneHop) GetLength() int {
+	return onehop.PathLen
+}
+
 // NewOneHop creates a onehop path that has the first hopfield initialized.
 func NewOneHop(
 	egress uint16,
