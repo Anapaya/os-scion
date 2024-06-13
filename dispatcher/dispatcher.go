@@ -17,6 +17,7 @@ package dispatcher
 import (
 	"context"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/scionproto/scion/dispatcher/internal/registration"
@@ -25,6 +26,7 @@ import (
 	"github.com/scionproto/scion/pkg/log"
 	"github.com/scionproto/scion/pkg/private/serrors"
 	"github.com/scionproto/scion/pkg/slayers"
+	"github.com/scionproto/scion/pkg/slayers/path/scion"
 	"github.com/scionproto/scion/private/ringbuf"
 	"github.com/scionproto/scion/private/underlay/conn"
 )
@@ -101,6 +103,11 @@ func (as *Server) Register(ctx context.Context, ia addr.IA, address *net.UDPAddr
 	if err != nil {
 		return nil, 0, err
 	}
+	tableEntry.identifier = net.JoinHostPort(
+		ia.String()+","+address.IP.String(),
+		strconv.Itoa(ref.UDPAddr().Port),
+	)
+
 	var ovConn net.PacketConn
 	if address.IP.To4() == nil {
 		ovConn = as.ipv6Conn
@@ -113,6 +120,10 @@ func (as *Server) Register(ctx context.Context, ia addr.IA, address *net.UDPAddr
 		regReference: ref,
 	}
 	return conn, uint16(ref.UDPAddr().Port), nil
+}
+
+func (as *Server) Dump() registration.IATAbleDump {
+	return as.routingTable.Dump()
 }
 
 func (as *Server) Close() {
@@ -141,7 +152,9 @@ func (ac *Conn) Write(pkt *respool.Packet) (int, error) {
 	// with the dispatcher. Likelihood that they overlap is very small.
 	// If this becomes ever a problem, we can namespace the ID per registered
 	// application.
-	_ = registerIfSCMPInfo(ac.regReference, pkt)
+	if err := registerIfSCMPInfo(ac.regReference, pkt); err != nil {
+		log.Info("Failed to register SCMP ID", "err", err)
+	}
 	return pkt.SendOnConn(ac.conn, pkt.UnderlayRemote)
 }
 
@@ -238,12 +251,29 @@ func registerIfSCMPInfo(ref registration.RegReference, pkt *respool.Packet) erro
 	if t != slayers.SCMPTypeEchoRequest && t != slayers.SCMPTypeTracerouteRequest {
 		return nil
 	}
+
+	dst := pkt.SCION.DstIA
+
+	// XXX: In a traceroute message, we can only scope the ID if the router
+	// alert is on the last hop. For the rest of the hops, we do not know the
+	// ISD-AS identifier.
+	if t == slayers.SCMPTypeTracerouteRequest {
+		if r, ok := pkt.SCION.Path.(*scion.Raw); !ok {
+			// If we cannot extract the last hop, we cannot scope the ID.
+			dst = 0
+		} else if hop, _ := r.GetHopField(r.NumHops - 1); !(hop.EgressRouterAlert || hop.IngressRouterAlert) {
+			// If the last hop does not have the router alert set, we cannot
+			// scope the ID.
+			dst = 0
+		}
+	}
+
 	id, err := extractSCMPIdentifier(&pkt.SCMP)
 	if err != nil {
 		return err
 	}
 	// FIXME(roosd): add metrics again.
-	return ref.RegisterID(uint64(id))
+	return ref.RegisterID(uint64(id), dst)
 }
 
 // underlayConnWrapper wraps a specialized underlay conn into a net.PacketConn

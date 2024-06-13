@@ -24,6 +24,7 @@ import (
 
 type TableEntry struct {
 	appIngressRing *ringbuf.Ring
+	identifier     string
 }
 
 func newTableEntry() *TableEntry {
@@ -32,6 +33,10 @@ func newTableEntry() *TableEntry {
 	return &TableEntry{
 		appIngressRing: appIngressRing,
 	}
+}
+
+func (e TableEntry) ID() string {
+	return e.identifier
 }
 
 // IATable is a type-safe convenience wrapper around a generic routing table.
@@ -62,8 +67,8 @@ func (t *IATable) LookupService(ia addr.IA, svc addr.SVC, bind net.IP) []*TableE
 	return entries
 }
 
-func (t *IATable) LookupID(ia addr.IA, id uint64) (*TableEntry, bool) {
-	e, ok := t.IATable.LookupID(ia, id)
+func (t *IATable) LookupID(ia addr.IA, id uint64, dst addr.IA) (*TableEntry, bool) {
+	e, ok := t.IATable.LookupID(ia, id, dst)
 	if !ok {
 		return nil, false
 	}

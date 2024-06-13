@@ -26,18 +26,20 @@ func TestSCMPEmptyTable(t *testing.T) {
 		table := NewSCMPTable()
 
 		Convey("Lookup for an id fails", func() {
-			value, ok := table.Lookup(42)
+			value, ok := table.Lookup(42, 1)
 			SoMsg("ok", ok, ShouldBeFalse)
 			SoMsg("value", value, ShouldBeNil)
 		})
 		Convey("Adding an item succeeds", func() {
 			value := "test value"
-			err := table.Register(42, value)
+			added, err := table.Register(42, 1, value)
 			So(err, ShouldBeNil)
+			So(added, ShouldBeTrue)
 		})
 		Convey("Adding an item with nil value fails", func() {
-			err := table.Register(42, nil)
+			added, err := table.Register(42, 1, nil)
 			So(err, ShouldNotBeNil)
+			So(added, ShouldBeFalse)
 		})
 	})
 }
@@ -46,20 +48,32 @@ func TestSCMPTableWithOneItem(t *testing.T) {
 	Convey("Given a table with one element", t, func() {
 		table := NewSCMPTable()
 		value := "test value"
-		err := table.Register(42, value)
+		added, err := table.Register(42, 1, value)
 		require.NoError(t, err)
+		require.True(t, added)
 		Convey("Lookup for the id succeeds", func() {
-			retValue, ok := table.Lookup(42)
+			retValue, ok := table.Lookup(42, 1)
 			SoMsg("ok", ok, ShouldBeTrue)
 			SoMsg("value", retValue, ShouldEqual, value)
 		})
 		Convey("Adding the same id fails", func() {
-			err := table.Register(42, "some other value")
+			added, err := table.Register(42, 1, "some other value")
 			So(err, ShouldNotBeNil)
+			So(added, ShouldBeFalse)
+		})
+		Convey("Adding the same id succeeds with same value", func() {
+			added, err := table.Register(42, 1, value)
+			So(err, ShouldBeNil)
+			So(added, ShouldBeFalse)
+		})
+		Convey("Adding the same id to different dest succeeds", func() {
+			added, err := table.Register(42, 2, "some other value")
+			require.NoError(t, err)
+			require.True(t, added)
 		})
 		Convey("After removing the ID, lookup fails", func() {
-			table.Remove(42)
-			value, ok := table.Lookup(42)
+			table.Remove(42, 1, value)
+			value, ok := table.Lookup(42, 1)
 			SoMsg("ok", ok, ShouldBeFalse)
 			SoMsg("value", value, ShouldBeNil)
 		})

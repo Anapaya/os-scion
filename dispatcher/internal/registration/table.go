@@ -20,6 +20,10 @@ import (
 	"github.com/scionproto/scion/pkg/addr"
 )
 
+type TableDump struct {
+	SCMP SCMPTableDump
+}
+
 // Table manages the UDP/IP port registrations for a single AS.
 //
 // Table is not safe for concurrent use from multiple goroutines.
@@ -94,16 +98,28 @@ func (t *Table) Size() int {
 	return t.size
 }
 
-func (t *Table) LookupID(id uint64) (interface{}, bool) {
-	return t.scmpTable.Lookup(id)
+func (t *Table) LookupID(id uint64, dst addr.IA) (interface{}, bool) {
+	return t.scmpTable.Lookup(id, dst)
 }
 
-func (t *Table) registerID(id uint64, value interface{}) error {
-	return t.scmpTable.Register(id, value)
+func (t *Table) registerID(id uint64, dst addr.IA, value interface{}) (bool, error) {
+	return t.scmpTable.Register(id, dst, value)
 }
 
-func (t *Table) removeID(id uint64) {
-	t.scmpTable.Remove(id)
+func (t *Table) removeID(id uint64, dst addr.IA, value interface{}) {
+	t.scmpTable.Remove(id, dst, value)
+}
+
+func (t *Table) Dump() TableDump {
+	return TableDump{
+		SCMP: t.scmpTable.Dump(),
+	}
+}
+
+type idWithDst struct {
+	id    uint64
+	dst   addr.IA
+	value interface{}
 }
 
 type TableReference struct {
@@ -111,7 +127,7 @@ type TableReference struct {
 	freed   bool
 	address *net.UDPAddr
 	svcRef  Reference
-	ids     []uint64
+	ids     []idWithDst
 }
 
 func (r *TableReference) Free() {
@@ -125,7 +141,7 @@ func (r *TableReference) Free() {
 	}
 	r.table.size--
 	for _, id := range r.ids {
-		r.table.removeID(id)
+		r.table.removeID(id.id, id.dst, id.value)
 	}
 }
 
@@ -133,10 +149,13 @@ func (r *TableReference) UDPAddr() *net.UDPAddr {
 	return r.address
 }
 
-func (r *TableReference) RegisterID(id uint64, value interface{}) error {
-	if err := r.table.registerID(id, value); err != nil {
+func (r *TableReference) RegisterID(id uint64, dst addr.IA, value interface{}) error {
+	added, err := r.table.registerID(id, dst, value)
+	if err != nil {
 		return err
 	}
-	r.ids = append(r.ids, id)
+	if added {
+		r.ids = append(r.ids, idWithDst{id: id, dst: dst, value: value})
+	}
 	return nil
 }

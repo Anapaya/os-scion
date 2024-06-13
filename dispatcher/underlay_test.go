@@ -144,8 +144,8 @@ func TestGetDst(t *testing.T) {
 				return pkt
 			},
 			ExpectedDst: SCMPDestination{
-				IA: xtest.MustParseIA("1-ff00:0:110"),
-				ID: 42,
+				OrigSrc: xtest.MustParseIA("1-ff00:0:110"),
+				ID:      42,
 			},
 			ErrAssertion: assert.NoError,
 		},
@@ -201,8 +201,8 @@ func TestGetDst(t *testing.T) {
 				return pkt
 			},
 			ExpectedDst: SCMPDestination{
-				IA: xtest.MustParseIA("1-ff00:0:110"),
-				ID: 42,
+				OrigSrc: xtest.MustParseIA("1-ff00:0:110"),
+				ID:      42,
 			},
 			ErrAssertion: assert.NoError,
 		},
@@ -312,8 +312,8 @@ func TestGetDst(t *testing.T) {
 				return pkt
 			},
 			ExpectedDst: SCMPDestination{
-				IA: xtest.MustParseIA("1-ff00:0:110"),
-				ID: 42,
+				OrigSrc: xtest.MustParseIA("1-ff00:0:110"),
+				ID:      42,
 			},
 			ErrAssertion: assert.NoError,
 		},
@@ -368,8 +368,8 @@ func TestGetDst(t *testing.T) {
 				return pkt
 			},
 			ExpectedDst: SCMPDestination{
-				IA: xtest.MustParseIA("1-ff00:0:110"),
-				ID: 42,
+				OrigSrc: xtest.MustParseIA("1-ff00:0:110"),
+				ID:      42,
 			},
 			ErrAssertion: assert.NoError,
 		},
@@ -480,8 +480,8 @@ func TestGetDst(t *testing.T) {
 				return pkt
 			},
 			ExpectedDst: SCMPDestination{
-				IA: xtest.MustParseIA("1-ff00:0:110"),
-				ID: 42,
+				OrigSrc: xtest.MustParseIA("1-ff00:0:110"),
+				ID:      42,
 			},
 			ErrAssertion: assert.NoError,
 		},
@@ -537,8 +537,8 @@ func TestGetDst(t *testing.T) {
 				return pkt
 			},
 			ExpectedDst: SCMPDestination{
-				IA: xtest.MustParseIA("1-ff00:0:110"),
-				ID: 42,
+				OrigSrc: xtest.MustParseIA("1-ff00:0:110"),
+				ID:      42,
 			},
 			ErrAssertion: assert.NoError,
 		},

@@ -45,7 +45,7 @@ type RegReference interface {
 	// the previous; instead, multiple IDs get associated with the reference.
 	// SCMP messages targeted at the ID will get sent to the socket associated
 	// with the reference. The IA of the id is set to the IA of the reference.
-	RegisterID(id uint64) error
+	RegisterID(id uint64, dst addr.IA) error
 }
 
 // IATable manages the UDP/IP port registrations for a SCION Dispatcher.
@@ -92,8 +92,12 @@ type IATable interface {
 	// The ID is used for SCMP Echo, TraceRoute, and RecordPath functionality.
 	// If an entry is found, the returned boolean is set to true. Otherwise, it
 	// is set to false.
-	LookupID(ia addr.IA, id uint64) (interface{}, bool)
+	LookupID(ia addr.IA, id uint64, dst addr.IA) (interface{}, bool)
+
+	Dump() IATAbleDump
 }
+
+type IATAbleDump map[addr.IA]TableDump
 
 // NewIATable creates a new UDP/IP port registration table.
 //
@@ -169,13 +173,23 @@ func (t *iaTable) LookupService(ia addr.IA, svc addr.SVC, bind net.IP) []interfa
 	return nil
 }
 
-func (t *iaTable) LookupID(ia addr.IA, id uint64) (interface{}, bool) {
+func (t *iaTable) LookupID(ia addr.IA, id uint64, dst addr.IA) (interface{}, bool) {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
 	if table, ok := t.ia[ia]; ok {
-		return table.LookupID(id)
+		return table.LookupID(id, dst)
 	}
 	return nil, false
+}
+
+func (t *iaTable) Dump() IATAbleDump {
+	t.mtx.Lock()
+	defer t.mtx.Unlock()
+	dump := make(IATAbleDump, len(t.ia))
+	for ia, table := range t.ia {
+		dump[ia] = table.Dump()
+	}
+	return dump
 }
 
 var _ RegReference = (*iaTableReference)(nil)
@@ -206,8 +220,8 @@ func (r *iaTableReference) SVCAddr() addr.SVC {
 	return r.svc
 }
 
-func (r *iaTableReference) RegisterID(id uint64) error {
+func (r *iaTableReference) RegisterID(id uint64, dst addr.IA) error {
 	r.table.mtx.Lock()
 	defer r.table.mtx.Unlock()
-	return r.entryRef.RegisterID(id, r.value)
+	return r.entryRef.RegisterID(id, dst, r.value)
 }

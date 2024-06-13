@@ -18,6 +18,7 @@ import (
 	"os"
 
 	"github.com/scionproto/scion/dispatcher"
+	"github.com/scionproto/scion/dispatcher/internal/registration"
 	"github.com/scionproto/scion/pkg/log"
 	"github.com/scionproto/scion/pkg/private/serrors"
 	"github.com/scionproto/scion/pkg/sock/reliable"
@@ -27,6 +28,8 @@ type Dispatcher struct {
 	UnderlaySocket    string
 	ApplicationSocket string
 	SocketFileMode    os.FileMode
+
+	server *dispatcher.Server
 }
 
 func (d *Dispatcher) ListenAndServe() error {
@@ -35,6 +38,9 @@ func (d *Dispatcher) ListenAndServe() error {
 		return err
 	}
 	defer dispServer.Close()
+
+	// XXX: Set for observability.
+	d.server = dispServer
 
 	dispServerConn, err := reliable.Listen(d.ApplicationSocket)
 	if err != nil {
@@ -61,4 +67,8 @@ func (d *Dispatcher) ListenAndServe() error {
 	}()
 
 	return <-errChan
+}
+
+func (d *Dispatcher) Dump() registration.IATAbleDump {
+	return d.server.Dump()
 }

@@ -130,7 +130,11 @@ func getDstSCMPInfo(pkt *respool.Packet) (Destination, error) {
 		if err != nil {
 			return nil, err
 		}
-		return SCMPDestination{IA: pkt.SCION.DstIA, ID: id}, nil
+		return SCMPDestination{
+			OrigSrc: pkt.SCION.DstIA,
+			OrigDst: pkt.SCION.SrcIA,
+			ID:      id,
+		}, nil
 	}
 	return nil, serrors.New("unsupported SCMP info message", "type", t)
 }
@@ -205,8 +209,9 @@ func getDstSCMPErr(pkt *respool.Packet) (Destination, error) {
 			return nil, serrors.New("SCMP error with truncated payload")
 		}
 		return SCMPDestination{
-			IA: pkt.SCION.DstIA,
-			ID: id,
+			OrigSrc: pkt.SCION.DstIA,
+			OrigDst: pkt.SCION.SrcIA,
+			ID:      id,
 		}, nil
 	}
 	return nil, ErrUnsupportedL4
@@ -256,15 +261,24 @@ func (d SVCDestination) Send(dp *NetToRingDataplane, pkt *respool.Packet) {
 }
 
 type SCMPDestination struct {
-	IA addr.IA
-	ID uint16
+	// OrigSrc is the source of the original SCMP packet. Because this Destination
+	// deals with replies, it is the dst of the observed packet.
+	OrigSrc addr.IA
+	// OrigDst is the destination of the original SCMP packet. Because this Destination
+	// deals with replies, it is the src of the observed packet.
+	OrigDst addr.IA
+	ID      uint16
 }
 
 func (d SCMPDestination) Send(dp *NetToRingDataplane, pkt *respool.Packet) {
-	routingEntry, ok := dp.RoutingTable.LookupID(d.IA, uint64(d.ID))
+	routingEntry, ok := dp.RoutingTable.LookupID(d.OrigSrc, uint64(d.ID), d.OrigDst)
+	// If the lookup fails, we still might have it registered in the catch all table.
+	if !ok {
+		routingEntry, ok = dp.RoutingTable.LookupID(d.OrigSrc, uint64(d.ID), 0)
+	}
 	if !ok {
 		metrics.M.AppNotFoundErrors().Inc()
-		log.Debug("destination address not found", "SCMP", d.ID)
+		log.Debug("destination address not found", "SCMP", d.ID, "src", d.OrigSrc, "dst", d.OrigDst)
 		return
 	}
 	sendPacket(routingEntry, pkt)
