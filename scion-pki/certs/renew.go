@@ -336,7 +336,11 @@ The template is expressed in JSON. A valid example::
 			span.SetTag("remote-options", remotes)
 
 			// Load private key.
-			privPrev, err := key.LoadPrivateKey(keyFile)
+			// XXX(roosd): The renewal process does currently not support KMS.
+			// This is a bit more involved, and requires some refactoring of the
+			// flags and the key loading/creation process. For now, KMS is also
+			// not a direct use-case for AS certificates.
+			privPrev, err := key.LoadPrivateKey("", keyFile)
 			if err != nil {
 				return serrors.WrapStr("reading private key", err)
 			}
