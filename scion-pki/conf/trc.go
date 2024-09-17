@@ -51,6 +51,9 @@ func LoadTRC(file string) (TRC, error) {
 	if err := config.LoadFile(file, &cfg); err != nil {
 		return TRC{}, serrors.WrapStr("unable to load TRC config from file", err, "file", file)
 	}
+	if err := cfg.Validity.Validate(); err != nil {
+		return TRC{}, serrors.WrapStr("validating 'validity' section", err)
+	}
 	cfg.relPath = filepath.Dir(file)
 	return cfg, nil
 }

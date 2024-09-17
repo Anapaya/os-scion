@@ -150,7 +150,12 @@ func (trc *TRC) Validate() error {
 			return serrors.WithCtx(ErrCertForOtherISD, "subject", cert.Subject, "index", i)
 		}
 		if !(Validity{NotBefore: cert.NotBefore, NotAfter: cert.NotAfter}).Covers(trc.Validity) {
-			return serrors.WithCtx(ErrTRCValidityNotCovered, "subject", cert.Subject, "index", i)
+			return serrors.WithCtx(ErrTRCValidityNotCovered,
+				"cert.subject", cert.Subject,
+				"cert.index", i,
+				"cert.validity", Validity{NotBefore: cert.NotBefore, NotAfter: cert.NotAfter},
+				"trc.validity", trc.Validity,
+			)
 		}
 	}
 	// Check that issuer-SN pair is unique.
