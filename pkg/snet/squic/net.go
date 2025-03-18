@@ -47,8 +47,8 @@ const (
 )
 
 const (
-	Version1                 quic.VersionNumber = 0x1
-	VersionSCIONExperimental quic.VersionNumber = 0x5c10000f
+	Version1                 quic.Version = 0x1
+	VersionSCIONExperimental quic.Version = 0x5c10000f
 )
 
 // streamAcceptTimeout is the default timeout for accepting connections.
@@ -413,12 +413,12 @@ func (d ConnDialer) Dial(ctx context.Context, dst net.Addr) (net.Conn, error) {
 			if d.QUICConfig != nil {
 				// Clone QUIC config to avoid data races, if it exists.
 				cfg := d.QUICConfig.Clone()
-				cfg.Versions = []quic.VersionNumber{VersionSCIONExperimental}
+				cfg.Versions = []quic.Version{VersionSCIONExperimental}
 				return cfg
 			}
 
 			return &quic.Config{
-				Versions: []quic.VersionNumber{VersionSCIONExperimental},
+				Versions: []quic.Version{VersionSCIONExperimental},
 			}
 		}()
 
