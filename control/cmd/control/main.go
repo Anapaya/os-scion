@@ -253,13 +253,30 @@ func realMain(ctx context.Context) error {
 		QueriesTotal: libmetrics.NewPromCounter(metrics.BeaconDBQueriesTotal),
 	})
 
-	beaconStore, isdLoopAllowed, err := createBeaconStore(
+	beaconStore, regPolicies, isdLoopAllowed, err := createBeaconStore(
 		beaconDB,
 		topo.Core(),
 		globalCfg.BS.Policies,
 	)
 	if err != nil {
 		return serrors.WrapStr("initializing beacon store", err)
+	}
+
+	// Initialize the segment registrars.
+	segmentRegistrars := make(beacon.SegmentRegistrars)
+	for _, policy := range regPolicies {
+		for _, regPolicy := range policy.RegistrationPolicies {
+			plugin, ok := beacon.SegmentRegistrationPlugins[regPolicy.Plugin]
+			if !ok {
+				return serrors.New("unknown segment registration plugin",
+					"plugin", regPolicy.Plugin)
+			}
+			registrar, err := plugin.New(errCtx, regPolicy.PluginConfig)
+			if err != nil {
+				return serrors.WrapStr("creating segment registrar", err)
+			}
+			segmentRegistrars.Register(policy.Type, regPolicy.Name, registrar)
+		}
 	}
 
 	trustengineCache := globalCfg.TrustEngine.Cache.New()
@@ -806,6 +823,8 @@ func realMain(ctx context.Context) error {
 		HiddenPathRegistrationCfg: hpWriterCfg,
 		AllowIsdLoop:              isdLoopAllowed,
 		EPIC:                      globalCfg.BS.EPIC,
+
+		Registrars: segmentRegistrars,
 	})
 	if err != nil {
 		return serrors.WrapStr("starting periodic tasks", err)
@@ -831,22 +850,22 @@ func createBeaconStore(
 	db storage.BeaconDB,
 	core bool,
 	policyConfig config.Policies,
-) (cs.Store, bool, error) {
+) (cs.Store, []beacon.Policy, bool, error) {
 
 	if core {
 		policies, err := cs.LoadCorePolicies(policyConfig)
 		if err != nil {
-			return nil, false, err
+			return nil, nil, false, err
 		}
 		store, err := beacon.NewCoreBeaconStore(policies, db)
-		return store, *policies.Prop.Filter.AllowIsdLoop, err
+		return store, []beacon.Policy{policies.CoreReg}, *policies.Prop.Filter.AllowIsdLoop, err
 	}
 	policies, err := cs.LoadNonCorePolicies(policyConfig)
 	if err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 	store, err := beacon.NewBeaconStore(policies, db)
-	return store, *policies.Prop.Filter.AllowIsdLoop, err
+	return store, []beacon.Policy{policies.DownReg, policies.UpReg}, *policies.Prop.Filter.AllowIsdLoop, err
 }
 
 func adaptInterfaceMap(in map[common.IFIDType]topology.IFInfo) map[uint16]ifstate.InterfaceInfo {
