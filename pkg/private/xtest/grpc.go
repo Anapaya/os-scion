@@ -102,6 +102,7 @@ func (s *GRPCService) Dial(ctx context.Context, addr net.Addr) (*grpc.ClientConn
 				return s.listener.Dial()
 			},
 		),
+		grpc.WithDisableServiceConfig(),
 		transportSecurity,
 	)
 }
