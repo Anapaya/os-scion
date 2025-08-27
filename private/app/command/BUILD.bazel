@@ -3,15 +3,18 @@ load("@rules_go//go:def.bzl", "go_library")
 go_library(
     name = "go_default_library",
     srcs = [
+        "gendocs.go",
         "pather.go",
         "sample.go",
         "version.go",
     ],
+    embedsrcs = ["sidebar.ts.tmpl"],
     importpath = "github.com/scionproto/scion/private/app/command",
     visibility = ["//visibility:public"],
     deps = [
         "//private/config:go_default_library",
         "//private/env:go_default_library",
         "@com_github_spf13_cobra//:go_default_library",
+        "@com_github_spf13_cobra//doc:go_default_library",
     ],
 )

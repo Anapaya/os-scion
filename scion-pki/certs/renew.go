@@ -62,31 +62,36 @@ import (
 
 const (
 	subjectHelp = `
-  {
-    "common_name": "1-ff00:0:110 AS certificate",
-    "country": "CH",
-    "isd_as": "1-ff00:0:110"
-  }
+
+` + "```json" + `
+{
+  "common_name": "1-ff00:0:110 AS certificate",
+  "country": "CH",
+  "isd_as": "1-ff00:0:110"
+}
+` + "```" + `
 
 All configurable fields with their type are defined by the following JSON
-schema::
+schema:
 
-  {
-    "type": "object",
-    "properties": {
-      "isd_as":              { "type": "string" },
-      "common_name":         { "type": "string" },
-      "country":             { "type": "string" },
-      "locality":            { "type": "string" },
-      "organization":        { "type": "string" },
-      "organizational_unit": { "type": "string" },
-      "postal_code":         { "type": "string" },
-      "province":            { "type": "string" },
-      "serial_number":       { "type": "string" },
-      "street_address":      { "type": "string" },
-    },
-    "required": ["isd_as"]
-  }
+` + "```json" + `
+{
+  "type": "object",
+  "properties": {
+    "isd_as":              { "type": "string" },
+    "common_name":         { "type": "string" },
+    "country":             { "type": "string" },
+    "locality":            { "type": "string" },
+    "organization":        { "type": "string" },
+    "organizational_unit": { "type": "string" },
+    "postal_code":         { "type": "string" },
+    "province":            { "type": "string" },
+    "serial_number":       { "type": "string" },
+    "street_address":      { "type": "string" },
+  },
+  "required": ["isd_as"]
+}
+` + "```" + `
 
 For more information on JSON schemas, see https://json-schema.org/.
 `
@@ -151,7 +156,7 @@ func newRenewCmd(pather command.Pather) *cobra.Command {
 `, pather.CommandPath()),
 		Long: `'renew' requests a renewed AS certificate from a remote CA control service.
 
-The provided <chain-file> and <key-file> are used to sign the CSR. They must be
+The provided ` + "`<chain-file>` and `<key-file>`" + ` are used to sign the CSR. They must be
 valid and verifiable by the CA in order for the request to be served.
 
 The renewed certificate chain is requested with a fresh private key, unless the
@@ -167,20 +172,20 @@ the command returns a non-zero exit code.
 The TRCs are used to validate and verify the renewed certificate chain. If the
 chain is not verifiable with any of the active TRCs, the certificate chain and,
 if applicable, the fresh private key are written to the provided file paths with
-the '<CA>.unverified' suffix, where CA is the ISD-AS number of the CA AS that
+the ` + "`<CA>.unverified`" + ` suffix, where CA is the ISD-AS number of the CA AS that
 issued the unverifiable certificate chain.
 
 The resulting certificate chain is written to the file system, either to
-<chain-file> or to \--out, if specified.
+` + "`<chain-file>`" + ` or to \--out, if specified.
 
-The fresh private key is is written to the file system, either to <key-file>
+The fresh private key is is written to the file stystem, either to ` + "`<key-file>`" + `
 or to \--out-key, if specified.
 
 Files are not allowed to be overwritten, by default. Either you have to specify
 the \--out and \--out-key flags explicitly, or specify the \--force or \--backup
 flags. In case the \--backup flag is set, every file that would be overwritten is
 renamed to contain a local execution time timestamp before the file extension.
-E.g., <filename-base>.<YYYY-MM-DD-HH-MM-SS>.<filename-ext>.
+E.g., ` + "`<filename-base>.<YYYY-MM-DD-HH-MM-SS>.<filename-ext>`" + `.
 
 This command supports the \--expires-in flag in order for it to be run in a
 periodic task runner (e.g., cronjob). The flag indicates the acceptable remaining
@@ -197,7 +202,7 @@ has three quarters of its validity period until it expires.
 Unless a subject template is specified, the subject of the existing certificate
 chain is used as the subject for the renewal request.
 
-The template is expressed in JSON. A valid example::
+The template is expressed in JSON. A valid example:
 ` + subjectHelp,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

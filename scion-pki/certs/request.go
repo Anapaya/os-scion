@@ -67,7 +67,7 @@ func newRequestCmd(pather command.Pather) *cobra.Command {
 `, pather.CommandPath()),
 		Long: `'request' requests an AS certificate from a remote CA using the provided CSR.
 
-The provided <chain-file> <key-file> are used to sign the CSR provided in <csr-file>.
+The provided ` + "`<chain-file>` `<key-file>` are used to sign the CSR provided in `<csr-file>`" + `.
 They must be valid and verifiable by the remote CA in order for the request to be served.
 
 By default, the target CA for the request is extracted from the certificate chain that
