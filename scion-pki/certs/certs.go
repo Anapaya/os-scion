@@ -54,6 +54,7 @@ func Cmd(pather command.Pather) *cobra.Command {
 		newValidateCmd(joined),
 		newVerifyCmd(joined),
 		newRenewCmd(joined),
+		newRequestCmd(joined),
 		newMatchCmd(joined),
 		newSignCmd(joined),
 		newFingerprintCmd(joined),

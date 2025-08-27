@@ -17,6 +17,7 @@ package certs
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -379,31 +380,10 @@ The template is expressed in JSON. A valid example::
 				}
 			}
 
-			// Sign the request.
-			algo, err := signed.SelectSignatureAlgorithm(privPrev.Public())
+			req, err := createRenewalRequest(ctx, csr, privPrev, chain, trcs[0], info.IA)
 			if err != nil {
-				return err
+				return serrors.Wrap("creating renewal request", err)
 			}
-			signer := trust.Signer{
-				PrivateKey:   privPrev,
-				Algorithm:    algo,
-				IA:           info.IA,
-				TRCID:        trcs[0].ID,
-				SubjectKeyID: chain[0].SubjectKeyId,
-				Expiration:   time.Now().Add(2 * time.Hour),
-				ChainValidity: cppki.Validity{
-					NotBefore: chain[0].NotBefore,
-					NotAfter:  chain[0].NotAfter,
-				},
-				Subject: chain[0].Subject,
-				Chain:   chain,
-			}
-			var req cppb.ChainRenewalRequest
-			cmsReq, err := renewal.NewChainRenewalRequest(ctx, csr, signer)
-			if err != nil {
-				return err
-			}
-			req.CmsSignedRequest = cmsReq.CmsSignedRequest
 			if flags.outCMS != "" {
 				if req.CmsSignedRequest == nil {
 					return serrors.New("cannot write request to file: no request created")
@@ -456,7 +436,7 @@ The template is expressed in JSON. A valid example::
 				span, ctx := tracing.CtxWith(ctx, "request")
 				span.SetTag("dst.isd_as", ca)
 
-				chain, err := r.Request(ctx, &req, remote, ca)
+				chain, err := r.Request(ctx, req, remote, ca)
 				if err != nil {
 					printErr("Sending request failed: %s\n", err)
 					return nil, err
@@ -620,7 +600,6 @@ type renewer struct {
 	LocalIP     net.IP
 	PathOptions func() []path.Option
 	Daemon      daemon.Connector
-	Disatcher   string
 	Timeout     time.Duration
 	StdErr      io.Writer
 }
@@ -966,4 +945,40 @@ func (r svcRouter) GetUnderlay(svc addr.SVC) (*net.UDPAddr, error) {
 
 func maybeMissingTRCInGrace(trcs []*cppki.TRC) bool {
 	return len(trcs) == 1 && trcs[0].InGracePeriod(time.Now())
+}
+
+func createRenewalRequest(
+	ctx context.Context,
+	csr []byte,
+	privateKey crypto.Signer,
+	chain []*x509.Certificate,
+	trc *cppki.TRC,
+	ia addr.IA,
+) (*cppb.ChainRenewalRequest, error) {
+
+	algo, err := signed.SelectSignatureAlgorithm(privateKey.Public())
+	if err != nil {
+		return nil, err
+	}
+	signer := trust.Signer{
+		PrivateKey:   privateKey,
+		Algorithm:    algo,
+		IA:           ia,
+		TRCID:        trc.ID,
+		SubjectKeyID: chain[0].SubjectKeyId,
+		Expiration:   time.Now().Add(2 * time.Hour),
+		ChainValidity: cppki.Validity{
+			NotBefore: chain[0].NotBefore,
+			NotAfter:  chain[0].NotAfter,
+		},
+		Subject: chain[0].Subject,
+		Chain:   chain,
+	}
+	var req cppb.ChainRenewalRequest
+	cmsReq, err := renewal.NewChainRenewalRequest(ctx, csr, signer)
+	if err != nil {
+		return nil, err
+	}
+	req.CmsSignedRequest = cmsReq.CmsSignedRequest
+	return &req, nil
 }
