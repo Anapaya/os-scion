@@ -1,0 +1,47 @@
+{{- /*item is a recursive template that generates a Docusaurus sidebar entry.*/}}
+{{- define "item" -}}
+{{- $itemData := . -}}
+{{- if $itemData.Children -}}
+{
+  type: 'category',
+  label: '{{ replace (basename $itemData.ID) "_" " " }}',
+  link: {
+    type: 'doc',
+    id: `${basePath}/{{ $itemData.ID }}`,
+  },
+  collapsible: true,
+  collapsed: true,
+  items: [
+  {{- /* Loop through children and recursively call the item template */}}
+  {{- range $i, $child := $itemData.Children -}}
+    {{- /* Add a comma before each item except the first one */}}
+    {{- if $i -}},{{- end -}}
+    {{- template "item" $child -}}
+  {{- end -}}
+  ]
+}
+{{- else -}}
+{
+  type: 'doc',
+  id: `${basePath}/{{ $itemData.ID }}`,
+}
+{{- end -}}
+{{- end -}}
+
+{{- /* Main Template Body */}}
+{{- $input := . -}}
+{{- $basePath := $input.BasePath -}}
+import type { SidebarsConfig } from '@docusaurus/plugin-content-docs';
+
+const basePath = '{{ $basePath }}';
+
+const sidebar: SidebarsConfig = {
+  clisidebar: [
+    {{- range $i, $rootItem := $input.Items -}}
+      {{- if $i -}},{{- end -}}
+      {{- template "item" $rootItem -}}
+    {{- end -}}
+  ],
+};
+
+export default sidebar.clisidebar;

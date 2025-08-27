@@ -57,7 +57,9 @@ corresponding signing keys and certificates.
 By default, the resulting signed object is written to a file with the following
 naming pattern::
 
-	ISD<isd>-B<base_version>-S<serial_number>.<signing-isd_as>-<signature-type>.trc
+` + "```text" + `
+ISD<isd>-B<base_version>-S<serial_number>.<signing-isd_as>-<signature-type>.trc
+` + "```" + `
 
 An alternative name can be specified with the \--out flag.
 

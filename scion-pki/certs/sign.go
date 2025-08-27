@@ -64,7 +64,7 @@ func newSignCmd(pather command.Pather) *cobra.Command {
 
 The command takes the following positional arguments:
 
-- <csr-file> is the file path where the PEM-encoded certificate signing request is located.
+- ` + "`<csr-file>`" + ` is the file path where the PEM-encoded certificate signing request is located.
 
 By default, the command creates a SCION control-plane PKI AS certificate. Another
 certificate type can be selected by providing the \--profile flag. If a certificate
