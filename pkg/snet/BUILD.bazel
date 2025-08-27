@@ -6,6 +6,7 @@ go_library(
     srcs = [
         "conn.go",
         "interface.go",
+        "not_fragmented.go",
         "packet.go",
         "packet_conn.go",
         "path.go",
