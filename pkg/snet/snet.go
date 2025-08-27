@@ -103,7 +103,7 @@ func (n *SCIONNetwork) OpenRaw(ctx context.Context, addr *net.UDPAddr) (PacketCo
 	}
 	start, end := n.Topology.PortRange.Start, n.Topology.PortRange.End
 	if addr.Port == 0 {
-		pconn, err = listenUDPRange(addr, start, end)
+		pconn, err = net.ListenUDP(addr.Network(), addr)
 	} else {
 		if addr.Port < int(start) || addr.Port > int(end) {
 			// XXX(JordiSubira): We allow listening UDP/SCION outside the endhost range,
