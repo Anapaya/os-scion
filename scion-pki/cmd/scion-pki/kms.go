@@ -100,7 +100,6 @@ var templateFuncs = template.FuncMap{
 	"trimRightSpace":          trimRightSpace,
 	"trimTrailingWhitespaces": trimRightSpace,
 	"rpad":                    rpad,
-	"removeEscape":            removeEscape,
 }
 
 func trimRightSpace(s string) string {

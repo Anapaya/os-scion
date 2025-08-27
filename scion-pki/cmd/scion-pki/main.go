@@ -15,14 +15,17 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/scionproto/scion/private/app"
+	"github.com/scionproto/scion/private/app/command"
 	"github.com/scionproto/scion/scion-pki/certs"
 	"github.com/scionproto/scion/scion-pki/key"
 	"github.com/scionproto/scion/scion-pki/testcrypto"
@@ -33,6 +36,11 @@ import (
 type CommandPather interface {
 	CommandPath() string
 }
+
+var (
+	admonition = regexp.MustCompile(`:::(\w+)[^\n]*\n([\s\S]*?)\n:::\n`)
+	codeBlock  = regexp.MustCompile("```[^\n]*\n([\\s\\S]*?)```")
+)
 
 func main() {
 	executable := filepath.Base(os.Args[0])
@@ -49,6 +57,48 @@ func main() {
 		// See https://github.com/spf13/cobra/issues/340#issuecomment-374617413.
 		SilenceErrors: true,
 	}
+	defaultHelp := cmd.HelpFunc()
+	cmd.SetHelpFunc(func(c *cobra.Command, _ []string) {
+		out := c.OutOrStdout()
+		var buf bytes.Buffer
+		c.SetOut(&buf)
+		defaultHelp(c, nil)
+
+		usage := buf.String()
+		usage = codeBlock.ReplaceAllStringFunc(usage, func(capture string) string {
+			matches := codeBlock.FindStringSubmatch(capture)
+			lines := strings.Split(matches[1], "\n")
+			var indentedLines []string
+			for _, line := range lines {
+				if strings.TrimSpace(line) == "" {
+					// no indentation for empty lines
+					indentedLines = append(indentedLines, "")
+				} else {
+					indentedLines = append(indentedLines, "    "+line)
+				}
+			}
+			return strings.Join(indentedLines, "\n")
+		})
+		usage = admonition.ReplaceAllStringFunc(usage, func(capture string) string {
+			matches := admonition.FindStringSubmatch(capture)
+			lines := strings.Split(matches[2], "\n")
+			var indentedLines []string
+			for _, line := range lines {
+				if strings.TrimSpace(line) == "" {
+					// no indentation for empty lines
+					indentedLines = append(indentedLines, "")
+				} else {
+					indentedLines = append(indentedLines, "    "+line)
+				}
+			}
+			return matches[1] + ":\n" + strings.Join(indentedLines, "\n")
+		})
+		usage = strings.ReplaceAll(usage, "`<", "<")
+		usage = strings.ReplaceAll(usage, ">`", ">")
+		usage = strings.ReplaceAll(usage, "\\-", "-")
+		c.SetOut(out)
+		fmt.Fprint(c.OutOrStdout(), usage)
+	})
 
 	cmd.AddCommand(
 		newVersion(),
@@ -56,18 +106,9 @@ func main() {
 		certs.Cmd(cmd),
 		trcs.Cmd(cmd),
 		testcrypto.Cmd(cmd),
-		newGendocs(cmd),
+		command.NewGendocs(cmd),
 		newKms(cmd),
 	)
-	// This Templatefunc allows use some escape characters for the rst
-	// documentation conversion without compromising the readability of the help
-	// text in the CLI.
-	cobra.AddTemplateFunc("removeEscape", removeEscape)
-
-	cmd.SetHelpTemplate(`{{with (or .Long .Short)}}{{. | trimTrailingWhitespaces | removeEscape}}
-
-{{end}}{{if or .Runnable .HasSubCommands}}{{.UsageString}}{{end}}`)
-	cmd.DisableAutoGenTag = true
 
 	if err := cmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
@@ -76,10 +117,4 @@ func main() {
 		}
 		os.Exit(1)
 	}
-}
-
-func removeEscape(s string) string {
-	s = strings.ReplaceAll(s, "::", ":")
-	s = strings.ReplaceAll(s, "\\-", "-")
-	return s
 }
