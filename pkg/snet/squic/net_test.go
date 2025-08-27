@@ -83,6 +83,7 @@ func TestAcceptLoopParallelism(t *testing.T) {
 					grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 						return dialer.Dial(ctx, srvConn.LocalAddr())
 					}),
+					grpc.WithDisableServiceConfig(),
 				)
 				if err != nil {
 					t.Log(err)
@@ -136,6 +137,7 @@ func TestGRPCQUIC(t *testing.T) {
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 			return dialer.Dial(ctx, srvConn.LocalAddr())
 		}),
+		grpc.WithDisableServiceConfig(),
 	)
 	require.NoError(t, err)
 	defer conn.Close()
