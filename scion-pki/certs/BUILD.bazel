@@ -13,6 +13,7 @@ go_library(
         "match.go",
         "observability.go",
         "renew.go",
+        "request.go",
         "sign.go",
         "validate.go",
         "verify.go",
