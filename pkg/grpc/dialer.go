@@ -48,6 +48,7 @@ func (SimpleDialer) Dial(ctx context.Context, address net.Addr) (*grpc.ClientCon
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		//nolint:staticcheck // ignore SA1019; Support remains in 1.x; we won't use v2.
 		grpc.WithBlock(),
+		grpc.WithDisableServiceConfig(),
 		UnaryClientInterceptor(),
 		StreamClientInterceptor(),
 	)
@@ -120,6 +121,7 @@ func (t *TCPDialer) Dial(ctx context.Context, dst net.Addr) (*grpc.ClientConn, e
 	//nolint:staticcheck // ignore SA1019; Support remains in 1.x; we won't use v2.
 	return grpc.DialContext(ctx, dst.String(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDisableServiceConfig(),
 		UnaryClientInterceptor(),
 		StreamClientInterceptor(),
 	)
@@ -163,6 +165,7 @@ func (d *QUICDialer) Dial(ctx context.Context, addr net.Addr) (*grpc.ClientConn,
 	return grpc.DialContext(ctx, addr.String(),
 		grpc.WithTransportCredentials(PassThroughCredentials{}),
 		grpc.WithContextDialer(dialer),
+		grpc.WithDisableServiceConfig(),
 		UnaryClientInterceptor(),
 		StreamClientInterceptor(),
 	)
