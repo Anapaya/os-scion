@@ -24,7 +24,6 @@ require (
 	github.com/iancoleman/strcase v0.3.0
 	github.com/lestrrat-go/jwx v1.2.29
 	github.com/mattn/go-isatty v0.0.20
-	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
 	github.com/mdlayher/ethernet v0.0.0-20220221185849-529eae5b6118
 	github.com/oapi-codegen/runtime v1.1.1
