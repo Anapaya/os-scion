@@ -134,9 +134,6 @@ func NewSqlite(path string, cfg *SqliteConfig) (*Sqlite, error) {
 		Full:     write,
 		ReadOnly: read,
 	}
-	if c.InMemory {
-		runtime.AddCleanup(db, func(name string) { unregisterMemoryDB(name) }, noFile)
-	}
 	return db, nil
 }
 
