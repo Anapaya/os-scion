@@ -23,6 +23,7 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"golang.org/x/sync/singleflight"
 
+	daemonctx "github.com/scionproto/scion/daemon/context"
 	"github.com/scionproto/scion/pkg/addr"
 	"github.com/scionproto/scion/pkg/daemon/asinfo"
 	"github.com/scionproto/scion/pkg/daemon/fetcher"
@@ -87,6 +88,7 @@ func (e *DaemonEngine) Paths(
 	dst, src addr.IA,
 	flags types.PathReqFlags,
 ) ([]snet.Path, error) {
+	ctx = daemonctx.WithPathLookup(ctx, src, dst)
 	if _, ok := ctx.Deadline(); !ok {
 		var cancelF context.CancelFunc
 		ctx, cancelF = context.WithTimeout(ctx, 10*time.Second)
@@ -131,6 +133,7 @@ func (e *DaemonEngine) backgroundPaths(origCtx context.Context, src, dst addr.IA
 	}
 	ctx, cancelF := context.WithTimeout(context.Background(), backgroundTimeout)
 	defer cancelF()
+	ctx = daemonctx.WithPathLookup(ctx, src, dst)
 	var spanOpts []opentracing.StartSpanOption
 	if span := opentracing.SpanFromContext(origCtx); span != nil {
 		spanOpts = append(spanOpts, opentracing.FollowsFrom(span.Context()))
