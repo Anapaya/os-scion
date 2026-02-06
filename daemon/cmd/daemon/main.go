@@ -38,13 +38,14 @@ import (
 	sd_drkey "github.com/scionproto/scion/daemon/drkey"
 	sd_grpc "github.com/scionproto/scion/daemon/drkey/grpc"
 	"github.com/scionproto/scion/daemon/fetcher"
+	"github.com/scionproto/scion/daemon/internal/servers"
 	api "github.com/scionproto/scion/daemon/mgmtapi"
 	"github.com/scionproto/scion/pkg/addr"
 	"github.com/scionproto/scion/pkg/experimental/hiddenpath"
 	hpgrpc "github.com/scionproto/scion/pkg/experimental/hiddenpath/grpc"
 	libgrpc "github.com/scionproto/scion/pkg/grpc"
 	"github.com/scionproto/scion/pkg/log"
-	"github.com/scionproto/scion/pkg/metrics"
+	"github.com/scionproto/scion/pkg/metrics/v2"
 	"github.com/scionproto/scion/pkg/private/prom"
 	"github.com/scionproto/scion/pkg/private/serrors"
 	cryptopb "github.com/scionproto/scion/pkg/proto/crypto"
@@ -92,6 +93,7 @@ func realMain(ctx context.Context) error {
 		Validator: &topology.DefaultValidator{},
 		Metrics:   loaderMetrics(),
 	})
+	trustMetrics := trustmetrics.New()
 	if err != nil {
 		return serrors.Wrap("creating topology loader", err)
 	}
@@ -108,7 +110,8 @@ func realMain(ctx context.Context) error {
 	defer closer.Close()
 
 	revCache := storage.NewRevocationStorage()
-	pathDB, err := storage.NewPathStorage(globalCfg.PathDB)
+	cleanerMetrics := newCleanerMetrics()
+	pathDB, err := storage.NewPathStorage(globalCfg.PathDB, cleanerMetrics.PathStorage)
 	if err != nil {
 		return serrors.Wrap("initializing path storage", err)
 	}
@@ -118,11 +121,13 @@ func realMain(ctx context.Context) error {
 	defer pathDB.Close()
 	defer revCache.Close()
 	//nolint:staticcheck // SA1019: fix later (https://github.com/scionproto/scion/issues/4776).
-	cleaner := periodic.Start(pathdb.NewCleaner(pathDB, "sd_segments"),
+	cleaner := periodic.Start(pathdb.NewCleaner(pathDB, "sd_segments",
+		cleanerMetrics.SDSegments),
 		300*time.Second, 295*time.Second)
 	defer cleaner.Stop()
 	//nolint:staticcheck // SA1019: fix later (https://github.com/scionproto/scion/issues/4776).
-	rcCleaner := periodic.Start(revcache.NewCleaner(revCache, "sd_revocation"),
+	rcCleaner := periodic.Start(revcache.NewCleaner(revCache, "sd_revocation",
+		cleanerMetrics.SDRevocation),
 		10*time.Second, 10*time.Second)
 	defer rcCleaner.Stop()
 
@@ -145,18 +150,25 @@ func realMain(ctx context.Context) error {
 		return serrors.Wrap("initializing trust database", err)
 	}
 	defer trustDB.Close()
+	trustQueries := promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "trustengine_db_queries_total",
+			Help: "Total queries to the database",
+		},
+		[]string{"driver", "operation", prom.LabelResult},
+	)
 	trustDB = truststoragemetrics.WrapDB(trustDB, truststoragemetrics.Config{
 		Driver: string(storage.BackendSqlite),
-		QueriesTotal: metrics.NewPromCounterFrom(
-			prometheus.CounterOpts{
-				Name: "trustengine_db_queries_total",
-				Help: "Total queries to the database",
-			},
-			[]string{"driver", "operation", prom.LabelResult},
-		),
+		QueriesTotal: func(driver, operation, result string) metrics.Counter {
+			return trustQueries.With(prometheus.Labels{
+				"driver":         driver,
+				"operation":      operation,
+				prom.LabelResult: result,
+			})
+		},
 	})
 	engine, err := daemon.TrustEngine(
-		errCtx, globalCfg.General.ConfigDir, topo.IA(), trustDB, dialer,
+		errCtx, globalCfg.General.ConfigDir, topo.IA(), trustDB, dialer, trustMetrics,
 	)
 	if err != nil {
 		return serrors.Wrap("creating trust engine", err)
@@ -164,7 +176,7 @@ func realMain(ctx context.Context) error {
 	engine.Inspector = trust.CachingInspector{
 		Inspector:          engine.Inspector,
 		Cache:              globalCfg.TrustEngine.Cache.New(),
-		CacheHits:          metrics.NewPromCounter(trustmetrics.CacheHitsTotal),
+		CacheHits:          trustMetrics.CacheHits,
 		MaxCacheExpiration: globalCfg.TrustEngine.Cache.Expiration.Duration,
 	}
 	trcLoader := trust.TRCLoader{
@@ -192,24 +204,21 @@ func realMain(ctx context.Context) error {
 		if err != nil {
 			return serrors.Wrap("creating level2 DRKey DB", err)
 		}
-		counter := metrics.NewPromCounter(
-			promauto.NewCounterVec(
-				prometheus.CounterOpts{
-					Name: "drkey_level2db_queries_total",
-					Help: "Total queries to the database",
-				},
-				[]string{"operation", prom.LabelResult},
-			),
+		counter := promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "drkey_level2db_queries_total",
+				Help: "Total queries to the database",
+			},
+			[]string{"operation", prom.LabelResult},
 		)
 		level2DB := &level2.Database{
 			Backend: backend,
 			Metrics: &level2.Metrics{
 				QueriesTotal: func(op, label string) metrics.Counter {
-					return metrics.CounterWith(
-						counter,
-						"operation", op,
-						prom.LabelResult, label,
-					)
+					return counter.With(prometheus.Labels{
+						"operation":      op,
+						prom.LabelResult: label,
+					})
 				},
 			},
 		}
@@ -223,7 +232,7 @@ func realMain(ctx context.Context) error {
 			DB:      level2DB,
 			Fetcher: drkeyFetcher,
 		}
-		cleaners := drkeyClientEngine.CreateStorageCleaners()
+		cleaners := drkeyClientEngine.CreateStorageCleaners(cleanerMetrics.DRKeyClient)
 		for _, cleaner := range cleaners {
 			// SA1019: fix later (https://github.com/scionproto/scion/issues/4776).
 			//nolint:staticcheck
@@ -261,8 +270,9 @@ func realMain(ctx context.Context) error {
 		return compat.Verifier{Verifier: trust.Verifier{
 			Engine:             engine,
 			Cache:              globalCfg.TrustEngine.Cache.New(),
-			CacheHits:          metrics.NewPromCounter(trustmetrics.CacheHitsTotal),
+			CacheHits:          trustMetrics.CacheHits,
 			MaxCacheExpiration: globalCfg.TrustEngine.Cache.Expiration.Duration,
+			Verifications:      trustMetrics.VerifierSignatures,
 		}}
 	}
 
@@ -292,6 +302,7 @@ func realMain(ctx context.Context) error {
 			Engine:      engine,
 			RevCache:    revCache,
 			DRKeyClient: drkeyClientEngine,
+			Metrics:     servers.NewMetrics(),
 		},
 	))
 
@@ -387,22 +398,21 @@ func (v acceptAllVerifier) WithValidity(cppki.Validity) infra.Verifier {
 	return v
 }
 
-func loaderMetrics() topology.LoaderMetrics {
-	updates := prom.NewCounterVec("", "",
-		"topology_updates_total",
-		"The total number of updates.",
+func loaderMetrics(opts ...metrics.Option) topology.LoaderMetrics {
+	auto := metrics.ApplyOptions(opts...).Auto()
+	updates := auto.NewCounterVec(prometheus.CounterOpts{
+		Name: "topology_updates_total",
+		Help: "The total number of topology updates.",
+	},
 		[]string{prom.LabelResult},
 	)
 	return topology.LoaderMetrics{
-		ValidationErrors: metrics.NewPromCounter(updates).With(prom.LabelResult, "err_validate"),
-		ReadErrors:       metrics.NewPromCounter(updates).With(prom.LabelResult, "err_read"),
-		LastUpdate: metrics.NewPromGauge(
-			prom.NewGaugeVec("", "",
-				"topology_last_update_time",
-				"Timestamp of the last successful update.",
-				[]string{},
-			),
+		Errors: updates.With(prometheus.Labels{prom.LabelResult: "err_validate"}),
+		LastUpdate: auto.NewGauge(prometheus.GaugeOpts{
+			Name: "topology_last_update_time",
+			Help: "Timestamp of the last successful update.",
+		},
 		),
-		Updates: metrics.NewPromCounter(updates).With(prom.LabelResult, prom.Success),
+		Updates: updates.With(prometheus.Labels{prom.LabelResult: prom.Success}),
 	}
 }

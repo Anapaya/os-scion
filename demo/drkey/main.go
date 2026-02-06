@@ -106,7 +106,7 @@ func realMain() int {
 		return 2
 	}
 
-	daemon, err := daemon.NewService(daemonAddr).Connect(ctx)
+	daemon, err := daemon.NewService(daemonAddr, daemon.Metrics{}).Connect(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error dialing SCION Daemon:", err)
 		return 1

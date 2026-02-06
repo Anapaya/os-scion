@@ -123,7 +123,7 @@ On other errors, traceroute will exit with code 2.
 
 			ctx, cancelF := context.WithTimeout(traceCtx, time.Second)
 			defer cancelF()
-			sd, err := daemon.NewService(daemonAddr).Connect(ctx)
+			sd, err := daemon.NewService(daemonAddr, daemon.Metrics{}).Connect(ctx)
 			if err != nil {
 				return serrors.Wrap("connecting to SCION Daemon", err)
 			}

@@ -66,7 +66,7 @@ case, the host could have multiple SCION addresses.
 			cmd.SilenceUsage = true
 			ctx, cancelF := context.WithTimeout(cmd.Context(), time.Second)
 			defer cancelF()
-			sd, err := daemon.NewService(daemonAddr).Connect(ctx)
+			sd, err := daemon.NewService(daemonAddr, daemon.Metrics{}).Connect(ctx)
 			if err != nil {
 				return serrors.Wrap("connecting to SCION Daemon", err)
 			}

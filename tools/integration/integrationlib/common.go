@@ -135,7 +135,7 @@ func validateFlags() {
 func SDConn() daemon.Connector {
 	ctx, cancelF := context.WithTimeout(context.Background(), DefaultIOTimeout)
 	defer cancelF()
-	conn, err := daemon.NewService(daemonAddr).Connect(ctx)
+	conn, err := daemon.NewService(daemonAddr, daemon.Metrics{}).Connect(ctx)
 	if err != nil {
 		LogFatal("Unable to initialize SCION Daemon connection", "err", err)
 	}
