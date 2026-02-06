@@ -130,7 +130,7 @@ by specifying the \--out flag.`,
 			// Setup basic state.
 			daemonCtx, daemonCancel := context.WithTimeout(ctx, time.Second)
 			defer daemonCancel()
-			sd, err := daemon.NewService(daemonAddr).Connect(daemonCtx)
+			sd, err := daemon.NewService(daemonAddr, daemon.Metrics{}).Connect(daemonCtx)
 			if err != nil {
 				return serrors.Wrap("connecting to SCION Daemon", err)
 			}
