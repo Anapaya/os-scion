@@ -297,6 +297,7 @@ func realMain(ctx context.Context) error {
 					Verifier:   createVerifier(),
 					RevCache:   revCache,
 					Cfg:        globalCfg.SD,
+					Metrics:    segfetcher.NewMetrics(),
 				},
 			),
 			Engine:      engine,
