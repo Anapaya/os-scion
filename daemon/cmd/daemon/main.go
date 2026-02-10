@@ -38,7 +38,6 @@ import (
 	sd_drkey "github.com/scionproto/scion/daemon/drkey"
 	sd_grpc "github.com/scionproto/scion/daemon/drkey/grpc"
 	"github.com/scionproto/scion/daemon/fetcher"
-	"github.com/scionproto/scion/daemon/internal/servers"
 	api "github.com/scionproto/scion/daemon/mgmtapi"
 	"github.com/scionproto/scion/pkg/addr"
 	"github.com/scionproto/scion/pkg/experimental/hiddenpath"
@@ -56,7 +55,6 @@ import (
 	"github.com/scionproto/scion/private/app/launcher"
 	cppkiapi "github.com/scionproto/scion/private/mgmtapi/cppki/api"
 	segapi "github.com/scionproto/scion/private/mgmtapi/segments/api"
-	"github.com/scionproto/scion/private/pathdb"
 	"github.com/scionproto/scion/private/periodic"
 	"github.com/scionproto/scion/private/revcache"
 	"github.com/scionproto/scion/private/segment/segfetcher"
@@ -120,11 +118,7 @@ func realMain(ctx context.Context) error {
 	})
 	defer pathDB.Close()
 	defer revCache.Close()
-	//nolint:staticcheck // SA1019: fix later (https://github.com/scionproto/scion/issues/4776).
-	cleaner := periodic.Start(pathdb.NewCleaner(pathDB, "sd_segments",
-		cleanerMetrics.SDSegments),
-		300*time.Second, 295*time.Second)
-	defer cleaner.Stop()
+
 	//nolint:staticcheck // SA1019: fix later (https://github.com/scionproto/scion/issues/4776).
 	rcCleaner := periodic.Start(revcache.NewCleaner(revCache, "sd_revocation",
 		cleanerMetrics.SDRevocation),
@@ -303,7 +297,7 @@ func realMain(ctx context.Context) error {
 			Engine:      engine,
 			RevCache:    revCache,
 			DRKeyClient: drkeyClientEngine,
-			Metrics:     servers.NewMetrics(),
+			Metrics:     daemon.NewServerMetrics(),
 		},
 	))
 

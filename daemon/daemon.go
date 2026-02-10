@@ -24,6 +24,7 @@ import (
 	"strconv"
 
 	"github.com/opentracing/opentracing-go"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/scionproto/scion/daemon/drkey"
 	"github.com/scionproto/scion/daemon/fetcher"
@@ -32,6 +33,8 @@ import (
 	"github.com/scionproto/scion/pkg/daemon"
 	libgrpc "github.com/scionproto/scion/pkg/grpc"
 	"github.com/scionproto/scion/pkg/log"
+	"github.com/scionproto/scion/pkg/metrics/v2"
+	"github.com/scionproto/scion/pkg/private/prom"
 	"github.com/scionproto/scion/pkg/private/serrors"
 	"github.com/scionproto/scion/private/env"
 	"github.com/scionproto/scion/private/revcache"
@@ -115,7 +118,7 @@ type ServerConfig struct {
 	Engine      trust.Engine
 	Topology    servers.Topology
 	DRKeyClient *drkey.ClientEngine
-	Metrics     servers.Metrics
+	Metrics     ServerMetrics
 }
 
 // NewServer constructs a daemon API server.
@@ -131,8 +134,145 @@ func NewServer(cfg ServerConfig) *servers.DaemonServer {
 		ASInspector: cfg.Engine.Inspector,
 		RevCache:    cfg.RevCache,
 		DRKeyClient: cfg.DRKeyClient,
-		Metrics:     cfg.Metrics,
+		Metrics:     cfg.Metrics.AsServerMetrics(),
 	}
+}
+
+type ServerMetrics struct {
+	PathsRequests              PathRequestMetrics
+	ASRequests                 RequestMetrics
+	InterfacesRequests         RequestMetrics
+	ServicesRequests           RequestMetrics
+	InterfaceDownNotifications InterfaceDownNotificationMetrics
+}
+
+func NewServerMetrics(opts ...metrics.Option) ServerMetrics {
+	auto := metrics.ApplyOptions(opts...).Auto()
+	pathRequests := auto.NewCounterVec(prometheus.CounterOpts{
+		Name: "sd_path_requests_total",
+		Help: "The amount of path requests received.",
+	}, []string{prom.LabelResult, prom.LabelDst})
+	pathLatency := auto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "sd_path_request_duration_seconds",
+		Help:    "Time to handle path requests.",
+		Buckets: prom.DefaultLatencyBuckets,
+	}, []string{prom.LabelResult})
+
+	asRequests := auto.NewCounterVec(prometheus.CounterOpts{
+		Name: "sd_as_info_requests_total",
+		Help: "The amount of AS requests received.",
+	}, []string{prom.LabelResult})
+	asLatency := auto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "sd_as_info_request_duration_seconds",
+		Help:    "Time to handle AS requests.",
+		Buckets: prom.DefaultLatencyBuckets,
+	}, []string{prom.LabelResult})
+
+	interfacesRequests := auto.NewCounterVec(prometheus.CounterOpts{
+		Name: "sd_if_info_requests_total",
+		Help: "The amount of interfaces requests received.",
+	}, []string{prom.LabelResult})
+	interfacesLatency := auto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "sd_if_info_request_duration_seconds",
+		Help:    "Time to handle interfaces requests.",
+		Buckets: prom.DefaultLatencyBuckets,
+	}, []string{prom.LabelResult})
+
+	servicesRequests := auto.NewCounterVec(prometheus.CounterOpts{
+		Name: "sd_service_info_requests_total",
+		Help: "The amount of services requests received.",
+	}, []string{prom.LabelResult})
+	servicesLatency := auto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "sd_service_info_request_duration_seconds",
+		Help:    "Time to handle services requests.",
+		Buckets: prom.DefaultLatencyBuckets,
+	}, []string{prom.LabelResult})
+
+	ifDownRequests := auto.NewCounterVec(prometheus.CounterOpts{
+		Name: "sd_received_revocations_total",
+		Help: "The amount of revocations received.",
+	}, []string{prom.LabelResult, prom.LabelSrc})
+	ifDownLatency := auto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "sd_revocation_notification_duration_seconds",
+		Help:    "Time to handle interface down notifications.",
+		Buckets: prom.DefaultLatencyBuckets,
+	}, []string{prom.LabelResult})
+
+	return ServerMetrics{
+		PathsRequests: PathRequestMetrics{
+			Requests: func(result string, dstISD addr.ISD) metrics.Counter {
+				return pathRequests.With(prometheus.Labels{
+					prom.LabelResult: result,
+					prom.LabelDst:    dstISD.String(),
+				})
+			},
+			Latency: func(result string) metrics.Histogram {
+				return pathLatency.With(prometheus.Labels{prom.LabelResult: result})
+			},
+		},
+		ASRequests: RequestMetrics{
+			Requests: func(result string) metrics.Counter {
+				return asRequests.With(prometheus.Labels{prom.LabelResult: result})
+			},
+			Latency: func(result string) metrics.Histogram {
+				return asLatency.With(prometheus.Labels{prom.LabelResult: result})
+			},
+		},
+		InterfacesRequests: RequestMetrics{
+			Requests: func(result string) metrics.Counter {
+				return interfacesRequests.With(prometheus.Labels{prom.LabelResult: result})
+			},
+			Latency: func(result string) metrics.Histogram {
+				return interfacesLatency.With(prometheus.Labels{prom.LabelResult: result})
+			},
+		},
+		ServicesRequests: RequestMetrics{
+			Requests: func(result string) metrics.Counter {
+				return servicesRequests.With(prometheus.Labels{prom.LabelResult: result})
+			},
+			Latency: func(result string) metrics.Histogram {
+				return servicesLatency.With(prometheus.Labels{prom.LabelResult: result})
+			},
+		},
+		InterfaceDownNotifications: InterfaceDownNotificationMetrics{
+			Requests: func(result, src string) metrics.Counter {
+				return ifDownRequests.With(prometheus.Labels{
+					prom.LabelResult: result,
+					prom.LabelSrc:    src,
+				})
+			},
+			Latency: func(result string) metrics.Histogram {
+				return ifDownLatency.With(prometheus.Labels{prom.LabelResult: result})
+			},
+		},
+	}
+}
+
+func (m ServerMetrics) AsServerMetrics() servers.Metrics {
+	return servers.Metrics{
+		PathsRequests:      servers.PathRequestMetrics(m.PathsRequests),
+		ASRequests:         servers.RequestMetrics(m.ASRequests),
+		InterfacesRequests: servers.RequestMetrics(m.InterfacesRequests),
+		ServicesRequests:   servers.RequestMetrics(m.ServicesRequests),
+		InterfaceDownNotifications: servers.InterfaceDownNotificationMetrics(
+			m.InterfaceDownNotifications,
+		),
+	}
+}
+
+type RequestMetrics struct {
+	Requests func(result string) metrics.Counter
+	Latency  func(result string) metrics.Histogram
+}
+
+type PathRequestMetrics struct {
+	Requests func(result string, dstISD addr.ISD) metrics.Counter
+	Latency  func(result string) metrics.Histogram
+}
+
+type InterfaceDownNotificationMetrics struct {
+	Requests func(result, src string) metrics.Counter
+	Latency  func(result string) metrics.Histogram
 }
 
 // APIAddress returns the API address to listen on, based on the provided
