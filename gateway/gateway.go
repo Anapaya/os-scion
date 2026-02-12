@@ -504,6 +504,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 				LocalIP: g.ServiceDiscoveryClientIP,
 			},
 		},
+		ClientMetrics: g.Metrics.GRPCClientMetrics,
 	}
 	remoteMonitor := &control.RemoteMonitor{
 		IAs:                   remoteIAsChannel,
@@ -562,7 +563,7 @@ func (g *Gateway) Run(ctx context.Context) error {
 
 	prefixConnect := http.NewServeMux()
 	prefixGrpc := grpc.NewServer(
-		libgrpc.UnaryServerInterceptor(),
+		libgrpc.UnaryServerInterceptor(g.Metrics.GRPCServerMetrics.UnaryServerInterceptor()),
 		libgrpc.DefaultMaxConcurrentStreams(),
 	)
 

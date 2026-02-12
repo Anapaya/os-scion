@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"time"
 
+	grpcprom "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -91,7 +92,10 @@ type Metrics struct {
 	DRKeySecretValueQueriesTotal           *prometheus.CounterVec
 	DRKeyLevel1QueriesTotal                *prometheus.CounterVec
 	RenewalMetrics                         renewal.Metrics
-	CleanerMetrics                         CleanerMetrics
+	CleanerMetrics
+
+	GRPCClientMetrics *grpcprom.ClientMetrics
+	GRPCServerMetrics *grpcprom.ServerMetrics
 }
 
 func NewMetrics(opts ...metrics.Option) *Metrics {
@@ -338,6 +342,16 @@ func NewMetrics(opts ...metrics.Option) *Metrics {
 			ExpirationCA:    renewalExpiration,
 		},
 		CleanerMetrics: NewCleanerMetrics(auto),
+		GRPCClientMetrics: metrics.RegisterCollector(
+			auto,
+			"grpc_client",
+			grpcprom.NewClientMetrics(),
+		),
+		GRPCServerMetrics: metrics.RegisterCollector(
+			auto,
+			"grpc_server",
+			grpcprom.NewServerMetrics(),
+		),
 	}
 }
 
