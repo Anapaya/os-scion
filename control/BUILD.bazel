@@ -54,6 +54,7 @@ go_library(
         "//private/topology:go_default_library",
         "//private/trust:go_default_library",
         "//private/trust/metrics:go_default_library",
+        "@com_github_grpc_ecosystem_go_grpc_middleware_providers_prometheus//:go_default_library",
         "@com_github_opentracing_opentracing_go//:go_default_library",
         "@com_github_prometheus_client_golang//prometheus:go_default_library",
         "@com_github_scionproto_scion//pkg/proto/hidden_segment/v1/hidden_segmentconnect:go_default_library",

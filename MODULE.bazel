@@ -69,7 +69,7 @@ use_repo(
     "com_github_google_go_cmp",
     "com_github_gopacket_gopacket",
     "com_github_grpc_ecosystem_go_grpc_middleware",
-    "com_github_grpc_ecosystem_go_grpc_prometheus",
+    "com_github_grpc_ecosystem_go_grpc_middleware_providers_prometheus",
     "com_github_grpc_ecosystem_grpc_opentracing",
     "com_github_hashicorp_golang_lru_arc_v2",
     "com_github_iancoleman_strcase",

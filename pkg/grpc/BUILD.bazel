@@ -16,7 +16,7 @@ go_library(
         "//pkg/private/serrors:go_default_library",
         "//pkg/snet:go_default_library",
         "@com_github_grpc_ecosystem_go_grpc_middleware//retry:go_default_library",
-        "@com_github_grpc_ecosystem_go_grpc_prometheus//:go_default_library",
+        "@com_github_grpc_ecosystem_go_grpc_middleware_providers_prometheus//:go_default_library",
         "@com_github_grpc_ecosystem_grpc_opentracing//go/otgrpc:go_default_library",
         "@com_github_opentracing_opentracing_go//:go_default_library",
         "@com_github_uber_jaeger_client_go//:go_default_library",

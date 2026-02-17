@@ -19,6 +19,7 @@ import (
 	"net"
 	"time"
 
+	grpcprom "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -93,13 +94,13 @@ func (SimpleDialer) Dial(ctx context.Context, address net.Addr) (*grpc.ClientCon
 // TCPDialer dials a gRPC connection over TCP. This dialer is meant to be used
 // for AS internal communication, and is capable of resolving svc addresses.
 type TCPDialer struct {
-	SvcResolver func(addr.SVC) []resolver.Address
+	SvcResolver   func(addr.SVC) []resolver.Address
+	ClientMetrics *grpcprom.ClientMetrics
 }
 
 // Dial dials a gRPC connection over TCP. It resolves svc addresses.
 func (t *TCPDialer) Dial(ctx context.Context, dst net.Addr) (*grpc.ClientConn, error) {
 	if v, ok := dst.(*snet.SVCAddr); ok {
-		// XXX(matzf) is this really needed!?
 		targets := t.SvcResolver(v.SVC)
 		if len(targets) == 0 {
 			return nil, serrors.New("could not resolve")
@@ -107,23 +108,32 @@ func (t *TCPDialer) Dial(ctx context.Context, dst net.Addr) (*grpc.ClientConn, e
 
 		r := manual.NewBuilderWithScheme("svc")
 		r.InitialState(resolver.State{Addresses: targets})
-		//nolint:staticcheck // ignore SA1019; Support remains in 1.x; we won't use v2.
-		return grpc.DialContext(ctx, r.Scheme()+":///"+v.SVC.BaseString(),
+		opts := []grpc.DialOption{
 			grpc.WithDefaultServiceConfig(`{"loadBalancingConfig": [{"round_robin":{}}]}`),
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithResolvers(r),
-			UnaryClientInterceptor(),
-			StreamClientInterceptor(),
+		}
+		if t.ClientMetrics != nil {
+			opts = append(opts,
+				UnaryClientInterceptor(t.ClientMetrics.UnaryClientInterceptor()),
+				StreamClientInterceptor(t.ClientMetrics.StreamClientInterceptor()),
+			)
+		}
+		return grpc.NewClient(r.Scheme()+":///"+v.SVC.BaseString(), opts...)
+	}
+
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDisableServiceConfig(),
+	}
+	if t.ClientMetrics != nil {
+		opts = append(opts,
+			UnaryClientInterceptor(t.ClientMetrics.UnaryClientInterceptor()),
+			StreamClientInterceptor(t.ClientMetrics.StreamClientInterceptor()),
 		)
 	}
 
-	//nolint:staticcheck // ignore SA1019; Support remains in 1.x; we won't use v2.
-	return grpc.DialContext(ctx, dst.String(),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDisableServiceConfig(),
-		UnaryClientInterceptor(),
-		StreamClientInterceptor(),
-	)
+	return grpc.NewClient(dst.String(), opts...)
 }
 
 // AddressRewriter redirects to QUIC endpoints.
@@ -139,16 +149,13 @@ type ConnDialer interface {
 // QUICDialer dials a gRPC connection over QUIC/SCION. This dialer is meant to
 // be used for inter AS communication, and is capable of resolving svc addresses.
 type QUICDialer struct {
-	Rewriter AddressRewriter
-	Dialer   ConnDialer
+	Rewriter      AddressRewriter
+	Dialer        ConnDialer
+	ClientMetrics *grpcprom.ClientMetrics
 }
 
 // Dial dials a gRPC connection over QUIC/SCION.
 func (d *QUICDialer) Dial(ctx context.Context, addr net.Addr) (*grpc.ClientConn, error) {
-	// XXX(roosd): Eventually, this method should take advantage of the
-	// resolver+balancer mechanism of gRPC. For now, keep the legacy behavior of
-	// dialing a connection based on the QUIC redirects.
-
 	addr, err := d.Rewriter.RedirectToQUIC(ctx, addr)
 	if err != nil {
 		return nil, serrors.Wrap("resolving SVC address", err)
@@ -156,14 +163,18 @@ func (d *QUICDialer) Dial(ctx context.Context, addr net.Addr) (*grpc.ClientConn,
 	dialer := func(context.Context, string) (net.Conn, error) {
 		return d.Dialer.Dial(ctx, addr)
 	}
-	//nolint:staticcheck // ignore SA1019; Support remains in 1.x; we won't use v2.
-	return grpc.DialContext(ctx, addr.String(),
+	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(PassThroughCredentials{}),
 		grpc.WithContextDialer(dialer),
 		grpc.WithDisableServiceConfig(),
-		UnaryClientInterceptor(),
-		StreamClientInterceptor(),
-	)
+	}
+	if d.ClientMetrics != nil {
+		opts = append(opts,
+			UnaryClientInterceptor(d.ClientMetrics.UnaryClientInterceptor()),
+			StreamClientInterceptor(d.ClientMetrics.StreamClientInterceptor()),
+		)
+	}
+	return grpc.NewClient("passthrough:///"+addr.String(), opts...)
 }
 
 var RetryOption grpc.CallOption = grpc_retry.WithPerRetryTimeout(3 * time.Second)

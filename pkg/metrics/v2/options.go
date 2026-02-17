@@ -166,3 +166,8 @@ func (f Factory) NewUntypedFunc(
 	f.register(prometheus.BuildFQName(opts.Namespace, opts.Subsystem, opts.Name), u)
 	return u
 }
+
+func RegisterCollector[C prometheus.Collector](f Factory, name string, c C) C {
+	f.register(name, c)
+	return c
+}
