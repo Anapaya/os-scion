@@ -15,6 +15,7 @@
 package gateway
 
 import (
+	grpcprom "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
@@ -306,6 +307,10 @@ type Metrics struct {
 	SCIONNetworkMetrics    snet.SCIONNetworkMetrics
 	SCMPErrors             metrics.Counter
 	SCIONPacketConnMetrics snet.SCIONPacketConnMetrics
+
+	// GRPC Metrics
+	GRPCClientMetrics *grpcprom.ClientMetrics
+	GRPCServerMetrics *grpcprom.ServerMetrics
 }
 
 // NewMetrics initializes the metrics for the gateway and registers them with the default registry.
@@ -313,6 +318,8 @@ func NewMetrics(ia addr.IA) *Metrics {
 	labels := map[string]string{
 		"isd_as": ia.String(),
 	}
+	registry := prometheus.DefaultRegisterer
+
 	scionPacketConnMetrics := snetmetrics.NewSCIONPacketConnMetrics()
 	return &Metrics{
 		IPPktBytesSentTotal: IPPktBytesSentTotalMeta.
@@ -396,5 +403,12 @@ func NewMetrics(ia addr.IA) *Metrics {
 		SCIONNetworkMetrics:    snetmetrics.NewSCIONNetworkMetrics(),
 		SCMPErrors:             scionPacketConnMetrics.SCMPErrors,
 		SCIONPacketConnMetrics: scionPacketConnMetrics,
+		GRPCClientMetrics:      register(registry, grpcprom.NewClientMetrics()),
+		GRPCServerMetrics:      register(registry, grpcprom.NewServerMetrics()),
 	}
+}
+
+func register[C prometheus.Collector](registry prometheus.Registerer, collector C) C {
+	registry.MustRegister(collector)
+	return collector
 }

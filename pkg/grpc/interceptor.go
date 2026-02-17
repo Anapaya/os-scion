@@ -18,7 +18,6 @@ import (
 	"context"
 
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
-	grpcprom "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
 	opentracing "github.com/opentracing/opentracing-go"
 	jaeger "github.com/uber/jaeger-client-go"
@@ -142,23 +141,25 @@ func openTracingInterceptorWithTarget() grpc.UnaryClientInterceptor {
 
 // UnaryClientInterceptor constructs the default unary RPC client-side interceptor for
 // SCION control-plane applications.
-func UnaryClientInterceptor() grpc.DialOption {
+func UnaryClientInterceptor(extraInterceptors ...grpc.UnaryClientInterceptor) grpc.DialOption {
 	return grpc.WithChainUnaryInterceptor(
-		grpc_retry.UnaryClientInterceptor(),
-		grpcprom.UnaryClientInterceptor,
-		openTracingInterceptorWithTarget(),
-		LogIDClientInterceptor(),
-	)
+		append([]grpc.UnaryClientInterceptor{
+			grpc_retry.UnaryClientInterceptor(
+				grpc_retry.WithMax(3),
+			),
+			openTracingInterceptorWithTarget(),
+			LogIDClientInterceptor(),
+		}, extraInterceptors...)...)
 }
 
 // StreamClientInterceptor constructs the default stream RPC client-side interceptor for
 // SCION control-plane applications.
-func StreamClientInterceptor() grpc.DialOption {
+func StreamClientInterceptor(extraInterceptors ...grpc.StreamClientInterceptor) grpc.DialOption {
 	return grpc.WithChainStreamInterceptor(
-		grpcprom.StreamClientInterceptor,
-		otgrpc.OpenTracingStreamClientInterceptor(opentracing.GlobalTracer()),
-		LogIDClientStreamInterceptor(),
-	)
+		append([]grpc.StreamClientInterceptor{
+			otgrpc.OpenTracingStreamClientInterceptor(opentracing.GlobalTracer()),
+			LogIDClientStreamInterceptor(),
+		}, extraInterceptors...)...)
 }
 
 // DefaultMaxConcurrentStreams constructs the default grpc.MaxConcurrentStreams Server Option.
@@ -171,22 +172,22 @@ func DefaultMaxConcurrentStreams() grpc.ServerOption {
 
 // UnaryServerInterceptor constructs the default unary RPC server-side interceptor for
 // SCION control-plane applications.
-func UnaryServerInterceptor() grpc.ServerOption {
+func UnaryServerInterceptor(extraInterceptors ...grpc.UnaryServerInterceptor) grpc.ServerOption {
 	return grpc.ChainUnaryInterceptor(
-		grpcprom.UnaryServerInterceptor,
-		otgrpc.OpenTracingServerInterceptor(opentracing.GlobalTracer()),
-		LogIDServerInterceptor(),
-	)
+		append([]grpc.UnaryServerInterceptor{
+			otgrpc.OpenTracingServerInterceptor(opentracing.GlobalTracer()),
+			LogIDServerInterceptor(),
+		}, extraInterceptors...)...)
 }
 
 // StreamServerInterceptor constructs the default stream RPC server-side interceptor for
 // SCION control-plane applications.
-func StreamServerInterceptor() grpc.ServerOption {
+func StreamServerInterceptor(extraInterceptors ...grpc.StreamServerInterceptor) grpc.ServerOption {
 	return grpc.ChainStreamInterceptor(
-		grpcprom.StreamServerInterceptor,
-		otgrpc.OpenTracingStreamServerInterceptor(opentracing.GlobalTracer()),
-		LogIDServerStreamInterceptor(),
-	)
+		append([]grpc.StreamServerInterceptor{
+			otgrpc.OpenTracingStreamServerInterceptor(opentracing.GlobalTracer()),
+			LogIDServerStreamInterceptor(),
+		}, extraInterceptors...)...)
 }
 
 type serverStream struct {

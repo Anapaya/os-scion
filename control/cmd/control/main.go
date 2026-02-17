@@ -31,7 +31,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
-	promgrpc "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
@@ -278,7 +277,8 @@ func realMain(ctx context.Context) error {
 			Rewriter: nc.AddressRewriter(),
 			MAC:      macGen(),
 		},
-		Dialer: quicStack.InsecureDialer,
+		Dialer:        quicStack.InsecureDialer,
+		ClientMetrics: metrics.GRPCClientMetrics,
 	}
 
 	beaconDB, err := storage.NewBeaconStorage(globalCfg.BeaconDB, topo.IA(),
@@ -392,7 +392,7 @@ func realMain(ctx context.Context) error {
 
 	quicServer := grpc.NewServer(
 		grpc.Creds(libgrpc.PassThroughCredentials{}),
-		libgrpc.UnaryServerInterceptor(),
+		libgrpc.UnaryServerInterceptor(metrics.GRPCServerMetrics.UnaryServerInterceptor()),
 		libgrpc.DefaultMaxConcurrentStreams(),
 	)
 	connectInter := http.NewServeMux()
@@ -804,8 +804,9 @@ func realMain(ctx context.Context) error {
 			},
 			Grpc: &drkeygrpc.Fetcher{
 				Dialer: &libgrpc.QUICDialer{
-					Rewriter: nc.AddressRewriter(),
-					Dialer:   quicStack.Dialer,
+					Rewriter:      nc.AddressRewriter(),
+					Dialer:        quicStack.Dialer,
+					ClientMetrics: metrics.GRPCClientMetrics,
 				},
 				Router:     segreq.NewRouter(fetcherCfg),
 				MaxRetries: 20,
@@ -841,7 +842,7 @@ func realMain(ctx context.Context) error {
 		log.Info("DRKey is DISABLED by configuration")
 	}
 
-	promgrpc.Register(quicServer)
+	metrics.GRPCServerMetrics.InitializeMetrics(quicServer)
 
 	var cleanup app.Cleanup
 	grpcConns := make(chan *quic.Conn)
