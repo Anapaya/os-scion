@@ -26,7 +26,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
-	promgrpc "github.com/grpc-ecosystem/go-grpc-prometheus"
+	grpcprom "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"golang.org/x/sync/errgroup"
@@ -125,6 +125,9 @@ func realMain(ctx context.Context) error {
 		10*time.Second, 10*time.Second)
 	defer rcCleaner.Stop()
 
+	grpcClientMetrics := grpcprom.NewClientMetrics()
+	grpcServerMetrics := grpcprom.NewServerMetrics()
+
 	dialer := &libgrpc.TCPDialer{
 		SvcResolver: func(dst addr.SVC) []resolver.Address {
 			if base := dst.Base(); base != addr.SvcCS {
@@ -137,6 +140,7 @@ func realMain(ctx context.Context) error {
 			}
 			return targets
 		},
+		ClientMetrics: grpcClientMetrics,
 	}
 
 	trustDB, err := storage.NewTrustStorage(globalCfg.TrustDB)
@@ -271,7 +275,7 @@ func realMain(ctx context.Context) error {
 	}
 
 	server := grpc.NewServer(
-		libgrpc.UnaryServerInterceptor(),
+		libgrpc.UnaryServerInterceptor(grpcServerMetrics.UnaryServerInterceptor()),
 		libgrpc.DefaultMaxConcurrentStreams(),
 	)
 	sdpb.RegisterDaemonServiceServer(server, daemon.NewServer(
@@ -301,7 +305,7 @@ func realMain(ctx context.Context) error {
 		},
 	))
 
-	promgrpc.Register(server)
+	grpcServerMetrics.InitializeMetrics(server)
 
 	var cleanup app.Cleanup
 	g.Go(func() error {
