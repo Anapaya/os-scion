@@ -76,6 +76,11 @@ func init() {
 	signal.Notify(sighupC, syscall.SIGHUP)
 }
 
+// NoStatConfigDir can be set to true to disable stating the config directory for
+// existence. This is useful when a config is validated outside of the context
+// of the service.
+var NoStatConfigDir bool
+
 var _ config.Config = (*General)(nil)
 
 type General struct {
@@ -99,7 +104,7 @@ func (cfg *General) Validate() error {
 
 // checkDir checks that the config dir is a directory.
 func (cfg *General) checkDir() error {
-	if cfg.ConfigDir != "" {
+	if cfg.ConfigDir != "" && !NoStatConfigDir {
 		info, err := os.Stat(cfg.ConfigDir)
 		if err != nil {
 			return err
