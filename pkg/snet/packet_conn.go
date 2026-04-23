@@ -214,6 +214,10 @@ func (c *SCIONPacketConn) ReadFrom(pkt *Packet, ov *net.UDPAddr) error {
 	}
 }
 
+func (c *SCIONPacketConn) PacketConn() net.PacketConn {
+	return c.conn
+}
+
 func (c *SCIONPacketConn) SyscallConn() (syscall.RawConn, error) {
 	return c.conn.SyscallConn()
 }
