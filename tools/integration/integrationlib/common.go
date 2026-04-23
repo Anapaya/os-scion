@@ -72,23 +72,22 @@ func addFlags() error {
 	if err != nil {
 		return serrors.Wrap("reading scion environment", err)
 	}
+	inferredAddr, _ := envFlags.Daemon()
+
 	// TODO(JordiSubira): Make this flag optional and consider the same case as Unspecified
 	// if it isn't explicitly set.
 	flag.Var(&Local, "local", "(Mandatory) address to listen on")
 	flag.StringVar(&Mode, "mode", ModeClient, "Run in "+ModeClient+" or "+ModeServer+" mode")
 	flag.StringVar(&Progress, "progress", "", "Socket to write progress to")
-	flag.StringVar(
-		&daemonAddr, "sciond", "",
+	flag.StringVar(&daemonAddr, "sciond", inferredAddr,
 		"SCION Daemon address. If set, uses remote daemon instead of standalone daemon.",
 	)
-	flag.StringVar(
-		&topoDir, "topoDir", "",
+	flag.StringVar(&topoDir, "topoDir", "",
 		"Directory containing topology files. Used for standalone daemon (default mode).",
 	)
 	flag.IntVar(&Attempts, "attempts", 1, "Number of attempts before giving up")
 	flag.StringVar(&logConsole, "log.console", "info", "Console logging level: debug|info|error")
-	flag.StringVar(
-		&features, "features", "",
+	flag.StringVar(&features, "features", "",
 		fmt.Sprintf("enable development features (%v)", feature.String(&feature.Default{}, "|")),
 	)
 	return nil
@@ -145,7 +144,11 @@ func validateFlags() {
 // from -topoDir.
 func SDConn() daemon.Connector {
 	// If sciond address is specified, use remote daemon
-	if daemonAddr != "" {
+	if topoDir == "" && daemonAddr == "" {
+		LogFatal("Either -sciond or -topoDir must be specified, or Daemon address must be inferred from environment")
+	}
+
+	if topoDir == "" {
 		ctx, cancelF := context.WithTimeout(context.Background(), DefaultIOTimeout)
 		defer cancelF()
 		conn, err := daemon.NewService(daemonAddr, daemon.Metrics{}).Connect(ctx)
@@ -153,11 +156,6 @@ func SDConn() daemon.Connector {
 			LogFatal("Unable to initialize SCION Daemon connection", "err", err)
 		}
 		return conn
-	}
-
-	// Use standalone daemon by default (with topology file)
-	if topoDir == "" {
-		LogFatal("Either -sciond or -topoDir must be specified")
 	}
 
 	// Construct topology file path from the local IA
