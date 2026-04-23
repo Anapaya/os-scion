@@ -20,10 +20,8 @@ import (
 	"net"
 
 	"connectrpc.com/connect"
-	"github.com/quic-go/quic-go/http3"
 
 	"github.com/scionproto/scion/pkg/addr"
-	libconnect "github.com/scionproto/scion/pkg/connect"
 	"github.com/scionproto/scion/pkg/private/serrors"
 	"github.com/scionproto/scion/pkg/proto/control_plane/v1/control_planeconnect"
 	"github.com/scionproto/scion/pkg/scrypto/cppki"
@@ -34,22 +32,19 @@ import (
 type Fetcher struct {
 	// IA is the local ISD-AS.
 	IA addr.IA
-	// Dialer dials a new QUIC connection.
-	Dialer libconnect.Dialer
+	// Client is the HTTP client
+	Client func(server net.Addr) connect.HTTPClient
+	// BaseUrl retrieves the base URL.
+	BaseUrl func(net.Addr) string
 }
 
 // Chains fetches certificate chains over the network
 func (f Fetcher) Chains(ctx context.Context, query trust.ChainQuery,
 	server net.Addr) ([][]*x509.Certificate, error) {
 
-	dialer := f.Dialer(server)
 	client := control_planeconnect.NewTrustMaterialServiceClient(
-		libconnect.HTTPClient{
-			RoundTripper: &http3.Transport{
-				Dial: dialer.DialEarly,
-			},
-		},
-		libconnect.BaseUrl(server),
+		f.Client(server),
+		f.BaseUrl(server),
 	)
 	rep, err := client.Chains(ctx, connect.NewRequest(grpc.ChainQueryToReq(query)))
 	if err != nil {
@@ -68,14 +63,9 @@ func (f Fetcher) Chains(ctx context.Context, query trust.ChainQuery,
 func (f Fetcher) TRC(ctx context.Context, id cppki.TRCID,
 	server net.Addr) (cppki.SignedTRC, error) {
 
-	dialer := f.Dialer(server)
 	client := control_planeconnect.NewTrustMaterialServiceClient(
-		libconnect.HTTPClient{
-			RoundTripper: &http3.Transport{
-				Dial: dialer.DialEarly,
-			},
-		},
-		libconnect.BaseUrl(server),
+		f.Client(server),
+		f.BaseUrl(server),
 	)
 	rep, err := client.TRC(ctx, connect.NewRequest(grpc.IDToReq(id)))
 	if err != nil {

@@ -90,6 +90,7 @@ go_library(
         "//private/trust/grpc:go_default_library",
         "//private/trust/happy:go_default_library",
         "//private/trust/metrics:go_default_library",
+        "@com_connectrpc_connect//:go_default_library",
         "@com_github_go_chi_chi_v5//:go_default_library",
         "@com_github_go_chi_cors//:go_default_library",
         "@com_github_prometheus_client_golang//prometheus:go_default_library",
