@@ -64,6 +64,14 @@ func (c HTTPClient) Do(req *http.Request) (*http.Response, error) {
 	return c.RoundTripper.RoundTrip(req)
 }
 
+func NewHTTP3Client(dialer squic.EarlyDialer) HTTPClient {
+	return HTTPClient{
+		RoundTripper: &http3.Transport{
+			Dial: dialer.DialEarly,
+		},
+	}
+}
+
 // AdaptTLS adapts the TLS config to indicate HTTP/3 and connectgrpc support.
 func AdaptTLS(cfg *tls.Config) *tls.Config {
 	c := cfg.Clone()
