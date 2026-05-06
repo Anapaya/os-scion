@@ -32,6 +32,9 @@ type ServerInterface interface {
 	// List the certificate chains
 	// (GET /certificates)
 	GetCertificates(w http.ResponseWriter, r *http.Request, params GetCertificatesParams)
+	// Add certificate chain to trust store
+	// (POST /certificates)
+	PostCertificate(w http.ResponseWriter, r *http.Request)
 	// Get the certificate chain
 	// (GET /certificates/{chain-id})
 	GetCertificate(w http.ResponseWriter, r *http.Request, chainId ChainID)
@@ -122,6 +125,12 @@ func (_ Unimplemented) GetCa(w http.ResponseWriter, r *http.Request) {
 // List the certificate chains
 // (GET /certificates)
 func (_ Unimplemented) GetCertificates(w http.ResponseWriter, r *http.Request, params GetCertificatesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Add certificate chain to trust store
+// (POST /certificates)
+func (_ Unimplemented) PostCertificate(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -489,6 +498,20 @@ func (siw *ServerInterfaceWrapper) GetCertificates(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCertificates(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostCertificate operation middleware
+func (siw *ServerInterfaceWrapper) PostCertificate(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostCertificate(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1050,6 +1073,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/certificates", wrapper.GetCertificates)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/certificates", wrapper.PostCertificate)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/certificates/{chain-id}", wrapper.GetCertificate)

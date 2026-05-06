@@ -91,6 +91,11 @@ func (s *Server) GetCertificates(
 	s.CPPKIServer.GetCertificates(w, r, cppkiParams)
 }
 
+// PostCertificate adds a certificate chain to the trust store.
+func (s *Server) PostCertificate(w http.ResponseWriter, r *http.Request) {
+	s.CPPKIServer.PostCertificate(w, r)
+}
+
 // GetCertificate lists the certificate chain for a given ChainID.
 func (s *Server) GetCertificate(w http.ResponseWriter, r *http.Request, chainID ChainID) {
 	s.CPPKIServer.GetCertificate(w, r, chainID)

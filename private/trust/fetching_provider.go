@@ -244,6 +244,13 @@ func (p FetchingProvider) setProviderMetric(span opentracing.Span,
 	tracing.Error(span, err)
 }
 
+// ActiveTRCs returns the active TRCs for the given ISD. It returns the latest
+// TRC and, if the latest TRC is in its grace period, the previous TRC as well.
+func ActiveTRCs(ctx context.Context, db DB, isd addr.ISD) ([]cppki.SignedTRC, error) {
+	trcs, _, err := activeTRCs(ctx, db, isd)
+	return trcs, err
+}
+
 func activeTRCs(ctx context.Context, db DB, isd addr.ISD) ([]cppki.SignedTRC, string, error) {
 	trc, err := db.SignedTRC(ctx, cppki.TRCID{
 		ISD:    isd,

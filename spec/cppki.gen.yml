@@ -151,6 +151,49 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/Problem'
+    post:
+      tags:
+        - cppki
+      summary: Add certificate chain to trust store
+      description: |
+        Add a certificate chain to the trust store. The certificate chain
+        is provided as PEM encoded data in the request body. The certificate
+        chain will be verified against the TRC before being added to the trust store.
+      operationId: post-certificate
+      requestBody:
+        description: PEM encoded certificate chain
+        required: true
+        content:
+          application/x-pem-file:
+            schema:
+              type: string
+              format: binary
+            example: |
+              -----BEGIN CERTIFICATE-----
+              ASCertificate ...
+              -----END CERTIFICATE-----
+              -----BEGIN CERTIFICATE-----
+              CACertificate ...
+              -----END CERTIFICATE-----
+      responses:
+        '201':
+          description: Certificate chain successfully added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChainBrief'
+        '400':
+          description: Invalid request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Certificate chain already exists
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /certificates/{chain-id}:
     get:
       tags:

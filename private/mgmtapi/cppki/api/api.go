@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"time"
@@ -112,6 +113,152 @@ func (s *Server) GetCertificates(
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "    ")
 	if err := enc.Encode(results); err != nil {
+		Error(w, Problem{
+			Detail: api.StringRef(err.Error()),
+			Status: http.StatusInternalServerError,
+			Title:  "unable to marshal response",
+			Type:   api.StringRef(api.InternalError),
+		})
+		return
+	}
+}
+
+// PostCertificate adds a certificate chain to the trust store
+func (s *Server) PostCertificate(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Read the request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		Error(w, Problem{
+			Detail: api.StringRef(err.Error()),
+			Status: http.StatusBadRequest,
+			Title:  "unable to read request body",
+			Type:   api.StringRef(api.BadRequest),
+		})
+		return
+	}
+	defer r.Body.Close()
+
+	// Parse PEM certificates
+	chain, err := cppki.ParsePEMCerts(body)
+	if err != nil {
+		Error(w, Problem{
+			Detail: api.StringRef(err.Error()),
+			Status: http.StatusBadRequest,
+			Title:  "unable to parse certificate chain",
+			Type:   api.StringRef(api.BadRequest),
+		})
+		return
+	}
+
+	// Validate chain structure
+	if err := cppki.ValidateChain(chain); err != nil {
+		Error(w, Problem{
+			Detail: api.StringRef(err.Error()),
+			Status: http.StatusBadRequest,
+			Title:  "invalid certificate chain",
+			Type:   api.StringRef(api.BadRequest),
+		})
+		return
+	}
+
+	// Extract ISD-AS from the certificate
+	ia, err := cppki.ExtractIA(chain[0].Subject)
+	if err != nil {
+		Error(w, Problem{
+			Detail: api.StringRef(err.Error()),
+			Status: http.StatusBadRequest,
+			Title:  "unable to extract ISD-AS from certificate",
+			Type:   api.StringRef(api.BadRequest),
+		})
+		return
+	}
+
+	// Get active TRCs for the ISD
+	trcs, err := trust.ActiveTRCs(r.Context(), s.TrustDB, ia.ISD())
+	if err != nil {
+		Error(w, Problem{
+			Detail: api.StringRef(err.Error()),
+			Status: http.StatusInternalServerError,
+			Title:  "unable to fetch TRCs for verification",
+			Type:   api.StringRef(api.InternalError),
+		})
+		return
+	}
+
+	if len(trcs) == 0 {
+		Error(w, Problem{
+			Detail: api.StringRef(fmt.Sprintf("no active TRC found for ISD %d", ia.ISD())),
+			Status: http.StatusBadRequest,
+			Title:  "TRC not found for verification",
+			Type:   api.StringRef(api.BadRequest),
+		})
+		return
+	}
+
+	// Verify against TRCs
+	var verifyErrors serrors.List
+	for _, trc := range trcs {
+		opts := cppki.VerifyOptions{TRC: []*cppki.TRC{&trc.TRC}}
+		if err := cppki.VerifyChain(chain, opts); err != nil {
+			verifyErrors = append(verifyErrors, err)
+			continue
+		}
+		// Verification succeeded, break early
+		verifyErrors = nil
+		break
+	}
+
+	if len(verifyErrors) > 0 {
+		Error(w, Problem{
+			Detail: api.StringRef(verifyErrors.ToError().Error()),
+			Status: http.StatusBadRequest,
+			Title:  "certificate chain verification failed",
+			Type:   api.StringRef(api.BadRequest),
+		})
+		return
+	}
+
+	// Insert into database
+	inserted, err := s.TrustDB.InsertChain(r.Context(), chain)
+	if err != nil {
+		Error(w, Problem{
+			Detail: api.StringRef(err.Error()),
+			Status: http.StatusInternalServerError,
+			Title:  "unable to insert certificate chain",
+			Type:   api.StringRef(api.InternalError),
+		})
+		return
+	}
+
+	if !inserted {
+		Error(w, Problem{
+			Detail: api.StringRef("certificate chain already exists"),
+			Status: http.StatusConflict,
+			Title:  "certificate chain already exists",
+			Type:   api.StringRef(api.BadRequest),
+		})
+		return
+	}
+
+	// Return success with chain brief
+	subject, _ := cppki.ExtractIA(chain[0].Subject)
+	issuer, _ := cppki.ExtractIA(chain[1].Subject)
+	result := ChainBrief{
+		Id:      fmt.Sprintf("%x", truststorage.ChainID(chain)),
+		Issuer:  issuer.String(),
+		Subject: subject.String(),
+		Validity: Validity{
+			NotAfter:  chain[0].NotAfter,
+			NotBefore: chain[0].NotBefore,
+		},
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "    ")
+	if err := enc.Encode(result); err != nil {
 		Error(w, Problem{
 			Detail: api.StringRef(err.Error()),
 			Status: http.StatusInternalServerError,
