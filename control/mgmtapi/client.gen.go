@@ -107,6 +107,9 @@ type ClientInterface interface {
 	// GetCertificates request
 	GetCertificates(ctx context.Context, params *GetCertificatesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// PostCertificateWithBody request with any body
+	PostCertificateWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetCertificate request
 	GetCertificate(ctx context.Context, chainId ChainID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -223,6 +226,18 @@ func (c *Client) GetCa(ctx context.Context, reqEditors ...RequestEditorFn) (*htt
 
 func (c *Client) GetCertificates(ctx context.Context, params *GetCertificatesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetCertificatesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) PostCertificateWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPostCertificateRequestWithBody(c.Server, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -778,6 +793,35 @@ func NewGetCertificatesRequest(server string, params *GetCertificatesParams) (*h
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewPostCertificateRequestWithBody generates requests for PostCertificate with any type of body
+func NewPostCertificateRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/certificates")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -1470,6 +1514,9 @@ type ClientWithResponsesInterface interface {
 	// GetCertificatesWithResponse request
 	GetCertificatesWithResponse(ctx context.Context, params *GetCertificatesParams, reqEditors ...RequestEditorFn) (*GetCertificatesResponse, error)
 
+	// PostCertificateWithBodyWithResponse request with any body
+	PostCertificateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostCertificateResponse, error)
+
 	// GetCertificateWithResponse request
 	GetCertificateWithResponse(ctx context.Context, chainId ChainID, reqEditors ...RequestEditorFn) (*GetCertificateResponse, error)
 
@@ -1705,6 +1752,38 @@ func (r GetCertificatesResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetCertificatesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PostCertificateResponse struct {
+	Body                      []byte
+	HTTPResponse              *http.Response
+	JSON201                   *ChainBrief
+	ApplicationproblemJSON400 *Problem
+	ApplicationproblemJSON409 *Problem
+}
+
+// Status returns HTTPResponse.Status
+func (r PostCertificateResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PostCertificateResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PostCertificateResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -2286,6 +2365,15 @@ func (c *ClientWithResponses) GetCertificatesWithResponse(ctx context.Context, p
 	return ParseGetCertificatesResponse(rsp)
 }
 
+// PostCertificateWithBodyWithResponse request with arbitrary body returning *PostCertificateResponse
+func (c *ClientWithResponses) PostCertificateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PostCertificateResponse, error) {
+	rsp, err := c.PostCertificateWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePostCertificateResponse(rsp)
+}
+
 // GetCertificateWithResponse request returning *GetCertificateResponse
 func (c *ClientWithResponses) GetCertificateWithResponse(ctx context.Context, chainId ChainID, reqEditors ...RequestEditorFn) (*GetCertificateResponse, error) {
 	rsp, err := c.GetCertificate(ctx, chainId, reqEditors...)
@@ -2634,6 +2722,46 @@ func ParseGetCertificatesResponse(rsp *http.Response) (*GetCertificatesResponse,
 			return nil, err
 		}
 		response.ApplicationproblemJSON400 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePostCertificateResponse parses an HTTP response from a PostCertificateWithResponse call
+func ParsePostCertificateResponse(rsp *http.Response) (*PostCertificateResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PostCertificateResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ChainBrief
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
 
 	}
 
