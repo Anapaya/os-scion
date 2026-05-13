@@ -124,10 +124,12 @@ If both --sciond and --config-dir are set, --sciond takes priority.
 	} else {
 		configDirHelp += `Required on this platform (no default).`
 	}
-	e.configDirFlag = flagSet.VarPF(
-		(*stringVal)(&e.configDir), "config-dir", "",
-		configDirHelp,
-	)
+	// XXX: In the context of the Anapaya software suite, the --config-dir flag is not supported.
+	//
+	//e.configDirFlag = flagSet.VarPF(
+	//	(*stringVal)(&e.configDir), "config-dir", "",
+	//	configDirHelp,
+	//)
 }
 
 // Validate checks that the flags are consistent.
