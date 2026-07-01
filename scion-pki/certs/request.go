@@ -47,6 +47,8 @@ func newRequestCmd(pather command.Pather) *cobra.Command {
 		ca       []string
 		remotes  []string
 
+		allowedSkew time.Duration
+
 		timeout  time.Duration
 		tracer   string
 		logLevel string
@@ -228,8 +230,18 @@ by specifying the \--out flag.`,
 					printErr("Sending request failed: %s\n", err)
 					return nil, err
 				}
-				// Verify certificate chain
-				verifyOptions := cppki.VerifyOptions{TRC: trcs}
+
+				now, skewed := verificationTime(chain, flags.allowedSkew)
+				if skewed {
+					printf("Certificate chain in future (%s), but within acceptable skew", time.Until(now))
+				}
+				// Verify certificate chain. Allow for clock skew: if the AS
+				// certificate's NotBefore is in the future but within the
+				// allowed skew, verify against that time instead of now.
+				verifyOptions := cppki.VerifyOptions{
+					TRC:         trcs,
+					CurrentTime: now,
+				}
 				if verifyError := cppki.VerifyChain(chain, verifyOptions); verifyError != nil {
 					printErr("Verification failed: %s\n", verifyError)
 					// Output helpful info in case the TRC is in grace period.
@@ -302,6 +314,11 @@ by specifying the \--out flag.`,
 			"The address is of the form <ISD-AS>,<IP>. --remote can be specified multiple times\n"+
 			"and all specified remotes are tried in order until success or all of them failed.\n"+
 			"--remote is mutually exclusive with --ca.",
+	)
+	cmd.Flags().DurationVar(&flags.allowedSkew, "allowed-clock-skew", 30*time.Second,
+		"Allowed clock skew between the issuing CA and the local host. If the\n"+
+			"renewed certificate's NotBefore time is in the future but within this\n"+
+			"skew, verification is performed against that time instead of now",
 	)
 	cmd.Flags().DurationVar(&flags.timeout, "timeout", 10*time.Second,
 		"The timeout for the renewal request per CA",
