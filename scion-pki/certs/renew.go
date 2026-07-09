@@ -128,6 +128,8 @@ func newRenewCmd(pather command.Pather) *cobra.Command {
 		curve      string
 		expiresIn  string
 
+		allowedSkew time.Duration
+
 		timeout  time.Duration
 		tracer   string
 		logLevel string
@@ -450,8 +452,17 @@ The template is expressed in JSON. A valid example:
 					return nil, err
 				}
 
-				// Verify certificate chain
-				verifyOptions := cppki.VerifyOptions{TRC: trcs}
+				now, skewOk := verificationTime(chain, flags.allowedSkew)
+				if skewOk {
+					printf("Certificate chain in future (%s), but within acceptable skew", time.Until(now))
+				}
+				// Verify certificate chain. Allow for clock skew: if the AS
+				// certificate's NotBefore is in the future but within the
+				// allowed skew, verify against that time instead of now.
+				verifyOptions := cppki.VerifyOptions{
+					TRC:         trcs,
+					CurrentTime: now,
+				}
 				if verifyError := cppki.VerifyChain(chain, verifyOptions); verifyError != nil {
 					suffix := "." + addr.FormatIA(ca, addr.WithFileSeparator()) + ".unverified"
 
@@ -572,6 +583,11 @@ The template is expressed in JSON. A valid example:
 	)
 	cmd.Flags().StringVar(&flags.expiresIn, "expires-in", "",
 		"Remaining time threshold for renewal",
+	)
+	cmd.Flags().DurationVar(&flags.allowedSkew, "allowed-clock-skew", 30*time.Second,
+		"Allowed clock skew between the issuing CA and the local host. If the\n"+
+			"renewed certificate's NotBefore time is in the future but within this\n"+
+			"skew, verification is performed against that time instead of now",
 	)
 	cmd.Flags().BoolVar(&flags.force, "force", false,
 		"Force overwriting existing files",
@@ -953,6 +969,23 @@ func (r svcRouter) GetUnderlay(svc addr.SVC) (*net.UDPAddr, error) {
 
 func maybeMissingTRCInGrace(trcs []*cppki.TRC) bool {
 	return len(trcs) == 1 && trcs[0].InGracePeriod(time.Now())
+}
+
+// verificationTime returns the time to use for verifying the renewed
+// certificate chain. It defaults to the current time. If the NotBefore time of
+// the AS certificate lies in the future, but within the allowed clock skew, the
+// NotBefore time is returned instead. This allows for clock skew between the
+// issuing CA and the local host.
+func verificationTime(chain []*x509.Certificate, allowedSkew time.Duration) (n time.Time, skewOk bool) {
+	now := time.Now()
+	if len(chain) == 0 {
+		return now, false
+	}
+	notBefore := chain[0].NotBefore
+	if notBefore.After(now) && notBefore.Sub(now) <= allowedSkew {
+		return notBefore, true
+	}
+	return now, false
 }
 
 func createRenewalRequest(
