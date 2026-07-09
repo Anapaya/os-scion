@@ -16,6 +16,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"google.golang.org/grpc/codes"
@@ -23,6 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/scionproto/scion/control/beacon"
+	"github.com/scionproto/scion/control/beaconing"
 	"github.com/scionproto/scion/pkg/log"
 	"github.com/scionproto/scion/pkg/private/common"
 	"github.com/scionproto/scion/pkg/private/serrors"
@@ -71,8 +73,16 @@ func (s SegmentCreationServer) Beacon(ctx context.Context,
 		InIfID:  ingress,
 	}
 	if err := s.Handler.HandleBeacon(ctx, b, peer); err != nil {
-		logger.Debug("Failed to handle beacon", "peer", peer, "err", err)
-		// TODO(roosd): return better error with status code.
+
+		var internalErr *beaconing.InternalError
+		if errors.As(err, &internalErr); ok {
+			logger.Info("Failed to handle beacon with internal error, do not inform peer",
+				"peer", peer,
+				"err", internalErr.Err,
+			)
+			return &cppb.BeaconResponse{}, nil
+		}
+		logger.Info("Failed to handle beacon", "peer", peer, "err", err)
 		return nil, serrors.Wrap("handling beacon", err)
 	}
 	return &cppb.BeaconResponse{}, nil
