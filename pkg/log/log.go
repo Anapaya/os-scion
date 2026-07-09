@@ -74,6 +74,14 @@ func convertCfg(cfg ConsoleConfig) (zap.Config, error) {
 		encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
 		encoderConfig.EncodeCaller = fixedCallerEncoder
 	}
+	var sampling *zap.SamplingConfig
+	if !cfg.Sampling.Disabled {
+		sampling = &zap.SamplingConfig{
+			Initial:    *cfg.Sampling.Initial,
+			Thereafter: *cfg.Sampling.Thereafter,
+		}
+
+	}
 	return zap.Config{
 		Level:             zap.NewAtomicLevelAt(level),
 		DisableStacktrace: cfg.StacktraceLevel == "none",
@@ -82,6 +90,7 @@ func convertCfg(cfg ConsoleConfig) (zap.Config, error) {
 		OutputPaths:       []string{"stderr"},
 		ErrorOutputPaths:  []string{"stderr"},
 		DisableCaller:     cfg.DisableCaller,
+		Sampling:          sampling,
 	}, nil
 }
 

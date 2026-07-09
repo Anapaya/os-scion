@@ -68,6 +68,8 @@ type ConsoleConfig struct {
 	// DisableCaller stops annotating logs with the calling function's file
 	// name and line number. By default, all logs are annotated.
 	DisableCaller bool `toml:"disable_caller,omitempty"`
+	// Defines the sampling of log entries.
+	Sampling ConsoleSamplingConfig `toml:"sampling,omitempty"`
 }
 
 // InitDefaults populates unset fields in cfg to their default values (if they
@@ -81,5 +83,28 @@ func (c *ConsoleConfig) InitDefaults() {
 	}
 	if c.StacktraceLevel == "" {
 		c.StacktraceLevel = DefaultStacktraceLevel
+	}
+	c.Sampling.InitDefaults()
+}
+
+type ConsoleSamplingConfig struct {
+	// Disabled indicates that log sampling is disabled.
+	Disabled bool `toml:"disabled,omitempty"`
+	// Initial is the number of log entries with the same level and message that
+	// are logged in the same second before sampling. If zero, sampling starts
+	// immediately.
+	Initial *int `toml:"initial,omitempty"`
+	// Thereafter is defines how many log entries with the same level and
+	// message are skipped before logging it again. If zero, all log entries
+	// after initial are dropped.
+	Thereafter *int `toml:"thereafter,omitempty"`
+}
+
+func (c *ConsoleSamplingConfig) InitDefaults() {
+	if c.Initial == nil {
+		c.Initial = new(10)
+	}
+	if c.Thereafter == nil {
+		c.Thereafter = new(100)
 	}
 }
