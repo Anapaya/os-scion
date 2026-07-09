@@ -196,8 +196,9 @@ func (p FetchingProvider) NotifyTRC(ctx context.Context, id cppki.TRCID, opts ..
 		return err
 	}
 	if trc.TRC.ID.Base != id.Base {
-		p.setProviderMetric(span, trustmetrics.NotifyTRC, trustmetrics.ErrValidate, nil)
-		return serrors.New("base number mismatch", "expected", trc.TRC.ID.Base, "actual", id.Base)
+		err := serrors.New("base number mismatch", "expected", trc.TRC.ID.Base, "actual", id.Base)
+		p.setProviderMetric(span, trustmetrics.NotifyTRC, trustmetrics.ErrValidate, err)
+		return err
 	}
 	if id.Serial <= trc.TRC.ID.Serial {
 		p.setProviderMetric(span, trustmetrics.NotifyTRC, trustmetrics.Success, nil)
