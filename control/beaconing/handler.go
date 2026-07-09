@@ -16,6 +16,7 @@ package beaconing
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strconv"
 
@@ -34,7 +35,18 @@ import (
 	infra "github.com/scionproto/scion/private/segment/verifier"
 	"github.com/scionproto/scion/private/topology"
 	"github.com/scionproto/scion/private/tracing"
+	"github.com/scionproto/scion/private/trust"
 )
+
+// InternalError is an error returned by the beacon handler. It indicates whether
+// the error is internal and should not be reported to the peer.
+type InternalError struct {
+	Err error
+}
+
+func (e *InternalError) Error() string { return e.Err.Error() }
+
+func (e *InternalError) Unwrap() error { return e.Err }
 
 // BeaconInserter inserts beacons into the beacon store.
 type BeaconInserter interface {
@@ -78,17 +90,21 @@ func (h Handler) HandleBeacon(ctx context.Context, b beacon.Beacon, peer *snet.U
 	if err := h.Inserter.PreFilter(b); err != nil {
 		logger.Debug("Beacon pre-filtered", "err", err)
 		h.updateMetric(span, labels.WithResult("err_prefilter"), err)
-		return err
+		return &InternalError{Err: err}
 	}
 	if err := h.validateASEntry(b, intf); err != nil {
-		logger.Info("Beacon validation failed", "err", err)
+		logger.Debug("Beacon validation failed", "err", err)
 		h.updateMetric(span, labels.WithResult(prom.ErrVerify), err)
 		return err
 	}
 	if err := h.verifySegment(ctx, b.Segment, peer); err != nil {
-		logger.Info("Beacon verification failed", "err", err)
+		logger.Debug("Beacon verification failed", "err", err)
+		err := serrors.Wrap("verifying beacon", err)
 		h.updateMetric(span, labels.WithResult(prom.ErrVerify), err)
-		return serrors.Wrap("verifying beacon", err)
+		if errors.Is(err, trust.ErrNotifyTRC) {
+			return &InternalError{Err: err}
+		}
+		return err
 	}
 	stat, err := h.Inserter.InsertBeacon(ctx, b)
 	if err != nil {

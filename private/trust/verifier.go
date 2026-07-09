@@ -17,6 +17,7 @@ package trust
 import (
 	"context"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net"
@@ -37,6 +38,10 @@ import (
 )
 
 const defaultCacheExpiration = time.Minute
+
+var (
+	ErrNotifyTRC = errors.New("notify TRC failed")
+)
 
 // Verifier is used to verify control plane messages using the AS cert
 // stored in the database.
@@ -104,7 +109,7 @@ func (v Verifier) Verify(ctx context.Context, signedMsg *cryptopb.SignedMessage,
 	}
 	if err := v.notifyTRC(ctx, id); err != nil {
 		record(trustmetrics.ErrInternal)
-		return nil, serrors.Wrap("reporting TRC", err, "id", id)
+		return nil, serrors.JoinNoStack(ErrNotifyTRC, err, "id", id)
 	}
 	query := ChainQuery{
 		IA:           ia,
