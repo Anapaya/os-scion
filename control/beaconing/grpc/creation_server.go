@@ -75,7 +75,7 @@ func (s SegmentCreationServer) Beacon(ctx context.Context,
 	if err := s.Handler.HandleBeacon(ctx, b, peer); err != nil {
 
 		var internalErr *beaconing.InternalError
-		if errors.As(err, &internalErr); ok {
+		if errors.As(err, &internalErr) {
 			logger.Info("Failed to handle beacon with internal error, do not inform peer",
 				"peer", peer,
 				"err", internalErr.Err,
