@@ -37,6 +37,11 @@ const (
 	// defaultNewSenderTimeout is the default timeout to create a new beacon
 	// sender.
 	defaultNewSenderTimeout time.Duration = 5 * time.Second
+	// defaultMaxInFlight is the default number of beacons that are extended
+	// and sent at the same time per egress interface.
+	defaultMaxInFlight int = 32
+	// defaultSendTimeout is the default timeout for one beacon send.
+	defaultSendTimeout time.Duration = 10 * time.Second
 )
 
 // BeaconProvider provides beacons to send to neighboring ASes.
@@ -59,6 +64,13 @@ type Propagator struct {
 	AllInterfaces         *ifstate.Interfaces
 	PropagationInterfaces func() []*ifstate.Interface
 	AllowIsdLoop          bool
+
+	// MaxInFlight is the maximum number of beacons that are extended and sent
+	// at the same time per egress interface. Zero means the default.
+	MaxInFlight int
+	// SendTimeout bounds one beacon send, including the connection setup on
+	// the first send. Zero means the default.
+	SendTimeout time.Duration
 
 	Propagated     func(startIA addr.IA, ingress, egress uint16, result string) metrics.Counter
 	InternalErrors metrics.Counter
@@ -104,6 +116,15 @@ func (p *Propagator) run(ctx context.Context) error {
 
 	p.logCandidateBeacons(logger, beacons)
 
+	maxInFlight := p.MaxInFlight
+	if maxInFlight <= 0 {
+		maxInFlight = defaultMaxInFlight
+	}
+	sendTimeout := p.SendTimeout
+	if sendTimeout <= 0 {
+		sendTimeout = defaultSendTimeout
+	}
+
 	var wg sync.WaitGroup
 	for intf, beacons := range beacons {
 		if len(beacons) == 0 {
@@ -122,6 +143,8 @@ func (p *Propagator) run(ctx context.Context) error {
 				intf:          intf,
 				beacons:       beacons,
 				peers:         peers,
+				maxInFlight:   maxInFlight,
+				sendTimeout:   sendTimeout,
 			}
 			if err := p.Propagate(ctx); err != nil {
 				logger.Info("Error propagating beacons on interface",
@@ -233,11 +256,13 @@ type propagator struct {
 	senderFactory SenderFactory
 	propagated    func(startIA addr.IA, ingress, egress uint16, result string) metrics.Counter
 
-	now     time.Time
-	silent  bool
-	beacons []beacon.Beacon
-	peers   []uint16
-	intf    *ifstate.Interface
+	now         time.Time
+	silent      bool
+	beacons     []beacon.Beacon
+	peers       []uint16
+	intf        *ifstate.Interface
+	maxInFlight int
+	sendTimeout time.Duration
 }
 
 func (p *propagator) Propagate(ctx context.Context) error {
@@ -274,6 +299,12 @@ func (p *propagator) Propagate(ctx context.Context) error {
 	}
 	defer sender.Close()
 
+	// Bound the number of beacons that are sent at the same time. Sending all
+	// beacons at once floods the connection to the neighbor. The tail of the
+	// burst then waits in the client-side queue and misses its deadline
+	// before it goes on the wire. Extension is not throttled, it is cheap
+	// and independent of the network.
+	sem := make(chan struct{}, p.maxInFlight)
 	var wg sync.WaitGroup
 	for _, b := range p.beacons {
 		wg.Add(1)
@@ -297,8 +328,30 @@ func (p *propagator) Propagate(ctx context.Context) error {
 				return
 			}
 
+			// Wait for a send slot. If the run ends first, the beacon is
+			// counted as a network error and dropped. It is resent in the
+			// next run.
+			slotStart := time.Now()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				logger.Info("Unable to send beacon (wait for send slot)",
+					"egress_interface", egress,
+					"beacon.id", id,
+					"beacon.ingress_interface", b.InIfID,
+					"beacon.segment", hopsDescription(b.Segment.ASEntries),
+					"waited_for", time.Since(slotStart).String(),
+					"err", ctx.Err(),
+				)
+				p.incMetric(b.Segment.FirstIA(), b.InIfID, egress, prom.ErrNetwork)
+				return
+			}
+
 			sendStart := time.Now()
-			if err := sender.Send(ctx, b.Segment); err != nil {
+			sendCtx, cancel := context.WithTimeout(ctx, p.sendTimeout)
+			defer cancel()
+			if err := sender.Send(sendCtx, b.Segment); err != nil {
 				logger.Info("Unable to send beacon",
 					"egress_interface", egress,
 					"beacon.id", id,
