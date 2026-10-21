@@ -40,7 +40,8 @@ const (
 	// defaultMaxInFlight is the default number of beacons that are extended
 	// and sent at the same time per egress interface.
 	defaultMaxInFlight int = 32
-	// defaultSendTimeout is the default timeout for one beacon send.
+	// defaultSendTimeout is the default timeout for one beacon send. Note that
+	// the send timeout also is impacted by the propagation interval.
 	defaultSendTimeout time.Duration = 10 * time.Second
 )
 
@@ -344,7 +345,7 @@ func (p *propagator) Propagate(ctx context.Context) error {
 					"waited_for", time.Since(slotStart).String(),
 					"err", ctx.Err(),
 				)
-				p.incMetric(b.Segment.FirstIA(), b.InIfID, egress, prom.ErrNetwork)
+				p.incMetric(b.Segment.FirstIA(), b.InIfID, egress, prom.ErrTimeout)
 				return
 			}
 
