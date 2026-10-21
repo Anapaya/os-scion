@@ -18,6 +18,7 @@ import (
 	"context"
 	"net"
 
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	"google.golang.org/grpc"
 
 	"github.com/scionproto/scion/control/beaconing"
@@ -62,14 +63,17 @@ type BeaconSender struct {
 	Conn *grpc.ClientConn
 }
 
-// Send sends a beacon to the remote.
+// Send sends a beacon to the remote. The call runs once and uses the deadline
+// of ctx. Retries are disabled because the propagator resends every beacon in
+// the next run anyway, and a retry on a link that just timed out only adds
+// load.
 func (s BeaconSender) Send(ctx context.Context, b *seg.PathSegment) error {
 	client := cppb.NewSegmentCreationServiceClient(s.Conn)
 	_, err := client.Beacon(ctx,
 		&cppb.BeaconRequest{
 			Segment: seg.PathSegmentToPB(b),
 		},
-		libgrpc.RetryProfile...,
+		grpc_retry.Disable(),
 	)
 	return err
 }

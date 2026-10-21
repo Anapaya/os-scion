@@ -91,6 +91,12 @@ type TasksConfig struct {
 	PropagationInterval  time.Duration
 	RegistrationInterval time.Duration
 	DRKeyEpochInterval   time.Duration
+	// PropagationMaxInFlight is the maximum number of beacons that are
+	// extended and sent at the same time per egress interface. Zero means
+	// the default.
+	PropagationMaxInFlight int
+	// PropagationSendTimeout bounds one beacon send. Zero means the default.
+	PropagationSendTimeout time.Duration
 	// HiddenPathRegistrationCfg contains the required options to configure
 	// hidden paths down segment registration. If it is nil, normal path
 	// registration is used instead.
@@ -204,6 +210,8 @@ func (t *TasksConfig) Propagator() *periodic.Runner {
 		AllInterfaces:         t.AllInterfaces,
 		PropagationInterfaces: t.PropagationInterfaces,
 		AllowIsdLoop:          t.AllowIsdLoop,
+		MaxInFlight:           t.PropagationMaxInFlight,
+		SendTimeout:           t.PropagationSendTimeout,
 		Tick:                  beaconing.NewTick(t.PropagationInterval),
 		InternalErrors:        t.Metrics.BeaconingPropagatorInternalErrorsTotal,
 		Propagated:            t.Metrics.BeaconingPropagatedTotal,
