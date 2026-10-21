@@ -22,6 +22,8 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,6 +36,8 @@ import (
 	"github.com/scionproto/scion/control/beaconing/mock_beaconing"
 	"github.com/scionproto/scion/control/ifstate"
 	"github.com/scionproto/scion/pkg/addr"
+	"github.com/scionproto/scion/pkg/metrics/v2"
+	"github.com/scionproto/scion/pkg/private/prom"
 	"github.com/scionproto/scion/pkg/private/serrors"
 	"github.com/scionproto/scion/pkg/private/xtest/graph"
 	seg "github.com/scionproto/scion/pkg/segment"
@@ -51,7 +55,11 @@ func TestPropagatorRunNonCore(t *testing.T) {
 		{graph.If_120_X_111_B},
 		{graph.If_130_B_120_A, graph.If_120_X_111_B},
 		{graph.If_130_B_120_A, graph.If_120_X_111_B},
+		{graph.If_110_X_120_A, graph.If_120_X_111_B},
+		{graph.If_110_X_120_A, graph.If_120_X_111_B},
 	}
+	// Use fewer slots than beacons to exercise the in-flight bound.
+	const maxInFlight = 2
 
 	mctrl := gomock.NewController(t)
 	topo, err := topology.FromJSONFile(topoNonCore)
@@ -63,6 +71,7 @@ func TestPropagatorRunNonCore(t *testing.T) {
 		return intf.TopoInfo().LinkType == topology.Child
 	}
 	p := beaconing.Propagator{
+		MaxInFlight: maxInFlight,
 		Extender: &beaconing.DefaultExtender{
 			IA:  topo.IA(),
 			MTU: topo.MTU(),
@@ -96,6 +105,16 @@ func TestPropagatorRunNonCore(t *testing.T) {
 		},
 	)
 
+	// Every Send blocks on release until the test has observed that all
+	// slots are taken. The counter tracks how many sends are in flight at
+	// the same time and must never exceed maxInFlight.
+	var (
+		inFlight    atomic.Int32
+		maxObserved atomic.Int32
+		slotsFull   = make(chan struct{})
+		release     = make(chan struct{})
+		fullOnce    sync.Once
+	)
 	senderFactory.EXPECT().NewSender(gomock.Any(), gomock.Any(), gomock.Any(),
 		gomock.Any()).Times(1).DoAndReturn(
 
@@ -103,8 +122,20 @@ func TestPropagatorRunNonCore(t *testing.T) {
 			nextHop *net.UDPAddr,
 		) (beaconing.Sender, error) {
 			sender := mock_beaconing.NewMockSender(mctrl)
-			sender.EXPECT().Send(gomock.Any(), gomock.Any()).Times(3).DoAndReturn(
+			sender.EXPECT().Send(gomock.Any(), gomock.Any()).Times(len(beacons)).DoAndReturn(
 				func(ctx context.Context, b *seg.PathSegment) error {
+					cur := inFlight.Add(1)
+					defer inFlight.Add(-1)
+					for {
+						prev := maxObserved.Load()
+						if cur <= prev || maxObserved.CompareAndSwap(prev, cur) {
+							break
+						}
+					}
+					if cur == maxInFlight {
+						fullOnce.Do(func() { close(slotsFull) })
+					}
+					<-release
 					validateSend(ctx, t, b, egIfID, nextHop, pub, topo)
 					return nil
 				},
@@ -114,9 +145,224 @@ func TestPropagatorRunNonCore(t *testing.T) {
 			return sender, nil
 		},
 	)
-	p.Run(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p.Run(context.Background())
+	}()
+	select {
+	case <-slotsFull:
+	case <-time.After(5 * time.Second):
+		t.Fatal("slots never filled up")
+	}
+	// All slots are taken and no send has returned yet. A third send must
+	// not start while the first two block.
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, int32(maxInFlight), inFlight.Load())
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("run did not finish")
+	}
+	assert.Equal(t, int32(maxInFlight), maxObserved.Load())
+
 	// Check that no beacons are sent, since the period has not passed yet.
 	p.Run(context.Background())
+}
+
+// propagatedCounter records the propagation results per result label.
+type propagatedCounter struct {
+	mtx      sync.Mutex
+	counters map[string]*metrics.TestCounter
+}
+
+func newPropagatedCounter() *propagatedCounter {
+	return &propagatedCounter{counters: make(map[string]*metrics.TestCounter)}
+}
+
+func (c *propagatedCounter) Propagated(
+	_ addr.IA, _, _ uint16, result string,
+) metrics.Counter {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	counter, ok := c.counters[result]
+	if !ok {
+		counter = metrics.NewTestCounter()
+		c.counters[result] = counter
+	}
+	return counter
+}
+
+func (c *propagatedCounter) Value(result string) float64 {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	counter, ok := c.counters[result]
+	if !ok {
+		return 0
+	}
+	return metrics.CounterValue(counter)
+}
+
+// newTestPropagator creates a non-core propagator that propagates the given
+// beacons on the child interface and reports the results to the returned
+// counter. Each Send call of the sender runs the given function.
+func newTestPropagator(
+	t *testing.T,
+	mctrl *gomock.Controller,
+	beacons [][]uint16,
+	send func(ctx context.Context, b *seg.PathSegment) error,
+) (*beaconing.Propagator, *propagatedCounter) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	topo, err := topology.FromJSONFile(topoNonCore)
+	require.NoError(t, err)
+	intfs := ifstate.NewInterfaces(interfaceInfos(topo), ifstate.Config{})
+	provider := mock_beaconing.NewMockBeaconProvider(mctrl)
+	senderFactory := mock_beaconing.NewMockSenderFactory(mctrl)
+	filter := func(intf *ifstate.Interface) bool {
+		return intf.TopoInfo().LinkType == topology.Child
+	}
+	counter := newPropagatedCounter()
+	p := &beaconing.Propagator{
+		Extender: &beaconing.DefaultExtender{
+			IA:  topo.IA(),
+			MTU: topo.MTU(),
+			SignerGen: testSignerGen{
+				Signers: []trust.Signer{testSigner(t, priv, topo.IA())},
+			},
+			Intfs:                intfs,
+			MAC:                  macFactory,
+			MaxExpTime:           func() uint8 { return beacon.DefaultMaxExpTime },
+			StaticInfo:           func() *beaconing.StaticInfoCfg { return nil },
+			DiscoveryInformation: func() *discovery.Extension { return nil },
+		},
+		SenderFactory: senderFactory,
+		IA:            topo.IA(),
+		Signer:        testSigner(t, priv, topo.IA()),
+		AllInterfaces: intfs,
+		PropagationInterfaces: func() []*ifstate.Interface {
+			return intfs.Filtered(filter)
+		},
+		Tick:       beaconing.NewTick(time.Hour),
+		Provider:   provider,
+		Propagated: counter.Propagated,
+	}
+	g := graph.NewDefaultGraph(mctrl)
+	provider.EXPECT().BeaconsToPropagate(gomock.Any()).Times(1).DoAndReturn(
+		func(_ any) ([]beacon.Beacon, error) {
+			res := make([]beacon.Beacon, 0, len(beacons))
+			for _, desc := range beacons {
+				res = append(res, testBeacon(g, desc))
+			}
+			return res, nil
+		},
+	)
+	senderFactory.EXPECT().NewSender(gomock.Any(), gomock.Any(), gomock.Any(),
+		gomock.Any()).Times(1).DoAndReturn(
+		func(context.Context, addr.IA, uint16, *net.UDPAddr) (beaconing.Sender, error) {
+			sender := mock_beaconing.NewMockSender(mctrl)
+			sender.EXPECT().Send(gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(send)
+			sender.EXPECT().Close().Times(1)
+			return sender, nil
+		},
+	)
+	return p, counter
+}
+
+func TestPropagatorSendTimeout(t *testing.T) {
+	beacons := [][]uint16{
+		{graph.If_120_X_111_B},
+		{graph.If_130_B_120_A, graph.If_120_X_111_B},
+		{graph.If_110_X_120_A, graph.If_120_X_111_B},
+	}
+	const sendTimeout = 100 * time.Millisecond
+
+	mctrl := gomock.NewController(t)
+	var deadlineErrs atomic.Int32
+	p, counter := newTestPropagator(t, mctrl, beacons,
+		// Block longer than the send timeout and report the context error.
+		func(ctx context.Context, _ *seg.PathSegment) error {
+			select {
+			case <-ctx.Done():
+				if ctx.Err() == context.DeadlineExceeded {
+					deadlineErrs.Add(1)
+				}
+				return ctx.Err()
+			case <-time.After(10 * sendTimeout):
+				return serrors.New("send was not canceled by the send timeout")
+			}
+		},
+	)
+	p.SendTimeout = sendTimeout
+
+	start := time.Now()
+	p.Run(context.Background())
+	elapsed := time.Since(start)
+
+	assert.Less(t, elapsed, 5*sendTimeout, "run must return shortly after the send timeout")
+	assert.Equal(t, int32(len(beacons)), deadlineErrs.Load())
+	assert.Equal(t, float64(len(beacons)), counter.Value(prom.ErrNetwork))
+	assert.Equal(t, float64(0), counter.Value(prom.Success))
+}
+
+func TestPropagatorCanceledWhileWaitingForSlot(t *testing.T) {
+	beacons := [][]uint16{
+		{graph.If_120_X_111_B},
+		{graph.If_130_B_120_A, graph.If_120_X_111_B},
+		{graph.If_110_X_120_A, graph.If_120_X_111_B},
+		{graph.If_110_X_120_A, graph.If_120_X_111_B},
+	}
+
+	mctrl := gomock.NewController(t)
+	var (
+		entered = make(chan struct{})
+		release = make(chan struct{})
+		once    sync.Once
+		sends   atomic.Int32
+	)
+	p, counter := newTestPropagator(t, mctrl, beacons,
+		// The single slot is held until the test releases it. All other
+		// beacons wait for the slot.
+		func(ctx context.Context, _ *seg.PathSegment) error {
+			sends.Add(1)
+			once.Do(func() { close(entered) })
+			<-release
+			return ctx.Err()
+		},
+	)
+	p.MaxInFlight = 1
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p.Run(ctx)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first send never started")
+	}
+	// Cancel the run while the remaining beacons wait for the slot. They
+	// must be counted as network errors without being sent.
+	cancel()
+	remaining := float64(len(beacons) - 1)
+	assert.Eventually(t, func() bool {
+		return counter.Value(prom.ErrNetwork) == remaining
+	}, 5*time.Second, 5*time.Millisecond)
+	assert.Equal(t, int32(1), sends.Load())
+
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("run did not return after cancellation")
+	}
+	assert.Equal(t, float64(len(beacons)), counter.Value(prom.ErrNetwork))
+	assert.Equal(t, float64(0), counter.Value(prom.Success))
 }
 
 func TestPropagatorRunCore(t *testing.T) {
