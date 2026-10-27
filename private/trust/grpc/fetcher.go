@@ -69,14 +69,14 @@ func (f Fetcher) Chains(ctx context.Context, query trust.ChainQuery,
 
 	conn, err := f.Dialer.Dial(ctx, server)
 	if err != nil {
-		f.updateMetric(span, labels.WithResult(trustmetrics.ErrTransmit), err)
+		f.updateMetric(span, labels.WithResult(trustmetrics.TransmitResult(ctx)), err)
 		return nil, serrors.Wrap("dialing", err)
 	}
 	defer conn.Close()
 	client := cppb.NewTrustMaterialServiceClient(conn)
 	rep, err := client.Chains(ctx, ChainQueryToReq(query), grpc.RetryProfile...)
 	if err != nil {
-		f.updateMetric(span, labels.WithResult(trustmetrics.ErrTransmit), err)
+		f.updateMetric(span, labels.WithResult(trustmetrics.TransmitResult(ctx)), err)
 		return nil, serrors.Wrap("receiving chains", err)
 	}
 
@@ -114,14 +114,14 @@ func (f Fetcher) TRC(ctx context.Context, id cppki.TRCID,
 
 	conn, err := f.Dialer.Dial(ctx, server)
 	if err != nil {
-		f.updateMetric(span, labels.WithResult(trustmetrics.ErrTransmit), err)
+		f.updateMetric(span, labels.WithResult(trustmetrics.TransmitResult(ctx)), err)
 		return cppki.SignedTRC{}, serrors.Wrap("dialing", err)
 	}
 	defer conn.Close()
 	client := cppb.NewTrustMaterialServiceClient(conn)
 	rep, err := client.TRC(ctx, IDToReq(id), grpc.RetryProfile...)
 	if err != nil {
-		f.updateMetric(span, labels.WithResult(trustmetrics.ErrTransmit), err)
+		f.updateMetric(span, labels.WithResult(trustmetrics.TransmitResult(ctx)), err)
 		return cppki.SignedTRC{}, serrors.Wrap("receiving TRC", err)
 	}
 

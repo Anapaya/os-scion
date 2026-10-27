@@ -34,6 +34,8 @@ import (
 // Requester fetches segments from a remote using gRPC.
 type Requester struct {
 	Dialer libconnect.Dialer
+	// Options are added to the options of the connect client.
+	Options []connect.ClientOption
 }
 
 func (f *Requester) Segments(ctx context.Context, req segfetcher.Request,
@@ -45,13 +47,16 @@ func (f *Requester) Segments(ctx context.Context, req segfetcher.Request,
 		squic.WithPeerChannel(peer),
 		squic.WithDialTimeout(segfetchergrpc.DefaultRPCDialTimeout),
 	)
-	client := control_planeconnect.NewSegmentLookupServiceClient(
-		libconnect.HTTPClient{
-			RoundTripper: &http3.Transport{
-				Dial: dialer.DialEarly,
-			},
+	httpClient := libconnect.HTTPClient{
+		RoundTripper: &http3.Transport{
+			Dial: dialer.DialEarly,
 		},
+	}
+	defer httpClient.Close()
+	client := control_planeconnect.NewSegmentLookupServiceClient(
+		httpClient,
 		libconnect.BaseUrl(server),
+		f.Options...,
 	)
 	rep, err := client.Segments(ctx, connect.NewRequest(&control_plane.SegmentsRequest{
 		SrcIsdAs: uint64(req.Src),

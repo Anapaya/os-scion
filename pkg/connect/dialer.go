@@ -64,6 +64,11 @@ func (c HTTPClient) Do(req *http.Request) (*http.Response, error) {
 	return c.RoundTripper.RoundTrip(req)
 }
 
+// Close closes the QUIC connections of the HTTP/3 transport.
+func (c HTTPClient) Close() error {
+	return c.RoundTripper.Close()
+}
+
 func NewHTTP3Client(dialer squic.EarlyDialer) HTTPClient {
 	return HTTPClient{
 		RoundTripper: &http3.Transport{

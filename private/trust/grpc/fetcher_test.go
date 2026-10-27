@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/scionproto/scion/pkg/addr"
+	"github.com/scionproto/scion/pkg/metrics/v2"
 	"github.com/scionproto/scion/pkg/private/serrors"
 	"github.com/scionproto/scion/pkg/private/xtest"
 	cppb "github.com/scionproto/scion/pkg/proto/control_plane"
@@ -35,6 +36,7 @@ import (
 	"github.com/scionproto/scion/pkg/scrypto/cppki"
 	"github.com/scionproto/scion/private/trust"
 	trustgrpc "github.com/scionproto/scion/private/trust/grpc"
+	trustmetrics "github.com/scionproto/scion/private/trust/metrics"
 )
 
 func TestFetcherChains(t *testing.T) {
@@ -264,6 +266,50 @@ func TestFetcherTRC(t *testing.T) {
 			trc, err := f.TRC(ctx, tc.ID, &net.UDPAddr{})
 			tc.Assertion(t, err)
 			assert.Equal(t, tc.Expected, trc)
+		})
+	}
+}
+
+func TestFetcherCanceled(t *testing.T) {
+	testCases := map[string]struct {
+		Call func(context.Context, trustgrpc.Fetcher) error
+		Type string
+	}{
+		"chains": {
+			Call: func(ctx context.Context, f trustgrpc.Fetcher) error {
+				_, err := f.Chains(ctx, trust.ChainQuery{}, &net.UDPAddr{})
+				return err
+			},
+			Type: trustmetrics.ChainReq,
+		},
+		"trc": {
+			Call: func(ctx context.Context, f trustgrpc.Fetcher) error {
+				_, err := f.TRC(ctx, cppki.TRCID{}, &net.UDPAddr{})
+				return err
+			},
+			Type: trustmetrics.TRCReq,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			mctrl := gomock.NewController(t)
+			svc := xtest.NewGRPCService()
+			cppb.RegisterTrustMaterialServiceServer(svc.Server(),
+				mock_cp.NewMockTrustMaterialServiceServer(mctrl))
+			svc.Start(t)
+
+			var results []string
+			f := trustgrpc.Fetcher{
+				Dialer: svc,
+				Requests: func(reqType, _, result string) metrics.Counter {
+					results = append(results, reqType+"/"+result)
+					return metrics.NewTestCounter()
+				},
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			assert.Error(t, tc.Call(ctx, f))
+			assert.Equal(t, []string{tc.Type + "/" + trustmetrics.Canceled}, results)
 		})
 	}
 }

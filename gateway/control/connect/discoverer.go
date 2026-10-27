@@ -53,12 +53,14 @@ func (d Discoverer) Gateways(ctx context.Context) ([]control.Gateway, error) {
 	}
 
 	dialer := d.Dialer(ds)
-	client := discoveryconnect.NewDiscoveryServiceClient(
-		libconnect.HTTPClient{
-			RoundTripper: &http3.Transport{
-				Dial: dialer.DialEarly,
-			},
+	httpClient := libconnect.HTTPClient{
+		RoundTripper: &http3.Transport{
+			Dial: dialer.DialEarly,
 		},
+	}
+	defer httpClient.Close()
+	client := discoveryconnect.NewDiscoveryServiceClient(
+		httpClient,
 		libconnect.BaseUrl(ds),
 	)
 

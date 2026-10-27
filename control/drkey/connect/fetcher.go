@@ -118,12 +118,14 @@ func (f *Fetcher) getLevel1Key(
 		SVC:     addr.SvcCS,
 	}
 	dialer := f.Dialer(remote, squic.WithDialTimeout(defaultRPCDialTimeout))
-	client := control_planeconnect.NewDRKeyInterServiceClient(
-		libconnect.HTTPClient{
-			RoundTripper: &http3.Transport{
-				Dial: dialer.DialEarly,
-			},
+	httpClient := libconnect.HTTPClient{
+		RoundTripper: &http3.Transport{
+			Dial: dialer.DialEarly,
 		},
+	}
+	defer httpClient.Close()
+	client := control_planeconnect.NewDRKeyInterServiceClient(
+		httpClient,
 		libconnect.BaseUrl(remote),
 	)
 	rep, err := client.DRKeyLevel1(ctx, connect.NewRequest(req))
