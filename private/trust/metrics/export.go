@@ -15,6 +15,8 @@
 package metrics
 
 import (
+	"context"
+	"errors"
 	"net"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -52,6 +54,9 @@ const (
 	OkExists   = "ok_exists"
 	OkInserted = "ok_inserted"
 	OkIgnored  = "ok_ignored"
+	// Canceled is the result of a request that the caller canceled, for
+	// example because the same request over another protocol was faster.
+	Canceled = "canceled"
 
 	ErrMismatch   = "err_content_mismatch"
 	ErrDB         = prom.ErrDB
@@ -65,6 +70,16 @@ const (
 	ErrValidate   = prom.ErrValidate
 	ErrVerify     = prom.ErrVerify
 )
+
+// TransmitResult returns the result of a request that failed before it
+// received a reply. The result is Canceled if the context of the request is
+// canceled, and ErrTransmit otherwise.
+func TransmitResult(ctx context.Context) string {
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return Canceled
+	}
+	return ErrTransmit
+}
 
 // Metrics exposes trust-related metrics as functions that return counters.
 type Metrics struct {

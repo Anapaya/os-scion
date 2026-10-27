@@ -30,7 +30,6 @@ import (
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -338,10 +337,11 @@ func realMain(ctx context.Context) error {
 		Fetcher: trusthappy.Fetcher{
 			Connect: trustconnect.Fetcher{
 				IA: topo.IA(),
-				Client: func(server net.Addr) connect.HTTPClient {
+				Client: func(server net.Addr) libconnect.Client {
 					return libconnect.NewHTTP3Client(squicDialer.NewDialer(server))
 				},
-				BaseUrl: libconnect.BaseUrl,
+				BaseUrl:  libconnect.BaseUrl,
+				Requests: trustMetrics.RPCFetches,
 			},
 			Grpc: trustgrpc.Fetcher{
 				IA:       topo.IA(),

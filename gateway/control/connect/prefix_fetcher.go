@@ -53,12 +53,14 @@ func (f PrefixFetcher) Prefixes(ctx context.Context, gateway *net.UDPAddr) ([]*n
 	}
 
 	dialer := f.Dialer(remote)
-	client := gatewayconnect.NewIPPrefixesServiceClient(
-		libconnect.HTTPClient{
-			RoundTripper: &http3.Transport{
-				Dial: dialer.DialEarly,
-			},
+	httpClient := libconnect.HTTPClient{
+		RoundTripper: &http3.Transport{
+			Dial: dialer.DialEarly,
 		},
+	}
+	defer httpClient.Close()
+	client := gatewayconnect.NewIPPrefixesServiceClient(
+		httpClient,
 		libconnect.BaseUrl(remote),
 	)
 	rep, err := client.Prefixes(ctx, connect.NewRequest(&gpb.PrefixesRequest{}))

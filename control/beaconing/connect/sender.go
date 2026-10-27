@@ -33,6 +33,8 @@ import (
 
 type BeaconSenderFactory struct {
 	Dialer libconnect.Dialer
+	// Options are added to the options of the connect client.
+	Options []connect.ClientOption
 }
 
 func (f *BeaconSenderFactory) NewSender(
@@ -55,6 +57,7 @@ func (f *BeaconSenderFactory) NewSender(
 				Dial: dialer.DialEarly,
 			},
 		},
+		Options: f.Options,
 	}, nil
 
 }
@@ -62,10 +65,12 @@ func (f *BeaconSenderFactory) NewSender(
 type BeaconSender struct {
 	Addr   string
 	Client *libconnect.HTTPClient
+	// Options are added to the options of the connect client.
+	Options []connect.ClientOption
 }
 
 func (s BeaconSender) Send(ctx context.Context, b *seg.PathSegment) error {
-	client := control_planeconnect.NewSegmentCreationServiceClient(s.Client, s.Addr)
+	client := control_planeconnect.NewSegmentCreationServiceClient(s.Client, s.Addr, s.Options...)
 	_, err := client.Beacon(ctx, connect.NewRequest(&control_plane.BeaconRequest{
 		Segment: seg.PathSegmentToPB(b),
 	}))
@@ -74,25 +79,30 @@ func (s BeaconSender) Send(ctx context.Context, b *seg.PathSegment) error {
 
 // Close closes the BeaconSender and releases all underlying resources.
 func (s BeaconSender) Close() error {
-	return s.Client.RoundTripper.Close()
+	return s.Client.Close()
 }
 
 // Registrar registers segments.
 type Registrar struct {
 	Dialer libconnect.Dialer
+	// Options are added to the options of the connect client.
+	Options []connect.ClientOption
 }
 
 // RegisterSegment registers a segment with the remote.
 func (r Registrar) RegisterSegment(ctx context.Context, meta seg.Meta, remote net.Addr) error {
 	peer := make(chan net.Addr, 1)
 	dialer := r.Dialer(remote, squic.WithPeerChannel(peer))
-	client := control_planeconnect.NewSegmentRegistrationServiceClient(
-		libconnect.HTTPClient{
-			RoundTripper: &http3.Transport{
-				Dial: dialer.DialEarly,
-			},
+	httpClient := libconnect.HTTPClient{
+		RoundTripper: &http3.Transport{
+			Dial: dialer.DialEarly,
 		},
+	}
+	defer httpClient.Close()
+	client := control_planeconnect.NewSegmentRegistrationServiceClient(
+		httpClient,
 		libconnect.BaseUrl(remote),
+		r.Options...,
 	)
 	_, err := client.SegmentsRegistration(ctx,
 		connect.NewRequest(&control_plane.SegmentsRegistrationRequest{
