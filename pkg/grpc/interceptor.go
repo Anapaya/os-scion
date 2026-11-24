@@ -16,13 +16,17 @@ package grpc
 
 import (
 	"context"
+	"runtime/debug"
 
+	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
 	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 	grpcprom "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
 	opentracing "github.com/opentracing/opentracing-go"
 	jaeger "github.com/uber/jaeger-client-go"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/scionproto/scion/pkg/log"
 )
@@ -176,7 +180,25 @@ func UnaryServerInterceptor() grpc.ServerOption {
 		grpcprom.UnaryServerInterceptor,
 		otgrpc.OpenTracingServerInterceptor(opentracing.GlobalTracer()),
 		LogIDServerInterceptor(),
+		RecoveryServerInterceptor(),
 	)
+}
+
+// RecoveryServerInterceptor constructs a unary RPC server-side interceptor that
+// recovers from panics in the RPC handler. The panic and its stack trace are
+// logged, and the RPC fails with codes.Internal instead of crashing the
+// process. It only covers the handler's goroutine; panics in goroutines
+// spawned by the handler are not recovered.
+func RecoveryServerInterceptor() grpc.UnaryServerInterceptor {
+	return grpc_recovery.UnaryServerInterceptor(
+		grpc_recovery.WithRecoveryHandlerContext(recoverPanic),
+	)
+}
+
+func recoverPanic(ctx context.Context, p any) error {
+	log.FromCtx(ctx).Error("Recovered from panic in RPC handler",
+		"panic", p, "stack", string(debug.Stack()))
+	return status.Error(codes.Internal, "internal error")
 }
 
 // StreamServerInterceptor constructs the default stream RPC server-side interceptor for
